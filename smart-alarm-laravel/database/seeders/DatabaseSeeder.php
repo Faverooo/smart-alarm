@@ -13,11 +13,37 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        // User::factory(10)->create();
+        // Admin — can see and manage everything
+        $admin = User::factory()->create([
+            'name'     => 'Admin',
+            'email'    => 'admin@smartalarm.local',
+            'password' => bcrypt('password'),
+            'is_admin' => true,
+        ]);
 
-        User::factory()->create([
-            'name' => 'Test User',
-            'email' => 'test@example.com',
+        // Alarm manager — will be assigned as alarm_user on the test device
+        $alarmUser = User::factory()->create([
+            'name'     => 'Marco (Alarm)',
+            'email'    => 'marco@smartalarm.local',
+            'password' => bcrypt('password'),
+            'is_admin' => false,
+        ]);
+
+        // Photo & message manager — will be assigned as photo_user on the test device
+        $photoUser = User::factory()->create([
+            'name'     => 'Angelica (Photos)',
+            'email'    => 'angelica@smartalarm.local',
+            'password' => bcrypt('password'),
+            'is_admin' => false,
+        ]);
+
+        // Placeholder device (MAC will be replaced with the real ESP32 MAC when it arrives)
+        \App\Models\Device::create([
+            'mac_address'   => 'AA:BB:CC:DD:EE:FF',
+            'name'          => 'Bedroom Alarm',
+            'pairing_code'  => null,
+            'alarm_user_id' => $alarmUser->id,
+            'photo_user_id' => $photoUser->id,
         ]);
     }
 }

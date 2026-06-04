@@ -41,7 +41,9 @@ return [
         'public' => [
             'driver' => 'local',
             'root' => storage_path('app/public'),
-            'url' => env('APP_URL').'/storage',
+            // Relative URL so file previews are always same-origin (works on
+            // localhost, 127.0.0.1, and the Cloudflare domain alike).
+            'url' => '/storage',
             'visibility' => 'public',
             'throw' => false,
             'report' => false,

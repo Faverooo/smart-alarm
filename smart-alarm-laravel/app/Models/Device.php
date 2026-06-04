@@ -2,19 +2,21 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Laravel\Sanctum\HasApiTokens; // 1. Import Sanctum
-use App\Models\Program;
-use App\Models\User;
-use App\Models\Alarm;
+use Laravel\Sanctum\HasApiTokens;
 
 class Device extends Model
 {
-    use HasApiTokens, HasFactory;
+    use HasApiTokens;
 
-    // Allow mass assignment for all fields 
-    protected $guarded = [];
+    protected $fillable = [
+        'mac_address',
+        'name',
+        'pairing_code',
+        'alarm_user_id',
+        'photo_user_id',
+        'program_id',
+    ];
 
     public function alarmUser()
     {
@@ -34,5 +36,16 @@ class Device extends Model
     public function alarms()
     {
         return $this->hasMany(Alarm::class);
+    }
+
+    public function messages()
+    {
+        return $this->hasMany(Message::class);
+    }
+
+    // Display label: name if set, otherwise MAC address
+    public function getDisplayNameAttribute(): string
+    {
+        return $this->name ?? $this->mac_address;
     }
 }

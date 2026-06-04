@@ -13,8 +13,9 @@ return new class extends Migration
     {
         Schema::create('photos', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('user_id')->constrained()->cascadeOnDelete(); // L'utente che l'ha caricata
+            $table->foreignId('user_id')->constrained()->cascadeOnDelete();
             $table->string('image_path');
+            $table->string('caption')->nullable();
             $table->timestamps();
         });
     }

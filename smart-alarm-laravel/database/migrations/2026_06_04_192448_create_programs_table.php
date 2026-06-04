@@ -14,7 +14,8 @@ return new class extends Migration
         Schema::create('programs', function (Blueprint $table) {
             $table->id();
             $table->foreignId('user_id')->constrained()->cascadeOnDelete();
-            $table->string('type')->default('fixed');
+            $table->string('name')->nullable();
+            $table->string('type')->default('fixed'); // fixed | daily | rotation
             $table->integer('interval_minutes')->nullable();
             $table->boolean('is_active')->default(true);
             $table->timestamps();
