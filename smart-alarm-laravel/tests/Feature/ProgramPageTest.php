@@ -36,7 +36,7 @@ class ProgramPageTest extends TestCase
         $program->photos()->attach($photo->id, ['is_shown' => false]);
 
         $this->actingAs($user)
-            ->get("/admin/programs/{$program->id}/edit")
+            ->get("/programs/{$program->id}/edit")
             ->assertStatus(200);
     }
 
@@ -45,7 +45,7 @@ class ProgramPageTest extends TestCase
         [$user, $program] = $this->makePhotoUserAndProgram('daily');
 
         $this->actingAs($user)
-            ->get("/admin/programs/{$program->id}/edit")
+            ->get("/programs/{$program->id}/edit")
             ->assertStatus(200);
     }
 
@@ -221,7 +221,7 @@ class ProgramPageTest extends TestCase
         Photo::create(['user_id' => $user->id, 'image_path' => 'photos/a.jpg', 'caption' => 'Hi']);
 
         $this->actingAs($user)
-            ->get('/admin/photos')
+            ->get('/photos')
             ->assertStatus(200);
     }
 

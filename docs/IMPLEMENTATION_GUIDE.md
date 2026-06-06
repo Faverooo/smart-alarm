@@ -43,10 +43,33 @@ manage it from a browser. One device is shared by two roles ("two-key" model):
 
 ---
 
-## Phase 2 — REST API for the ESP32
+## Phase 2 — REST API for the ESP32  ✅ IMPLEMENTED
 
 Goal: a tiny JSON API the ESP polls. Auth = per-device Sanctum token issued at
 pairing. All times sent as **local** strings (no timezone math on the device).
+
+> **Built:** `php artisan install:api` (Sanctum + `routes/api.php` + tokens table).
+> Controllers in `app/Http/Controllers/Api/V1/` (`PairController`, `SyncController`,
+> `InteractionController`). Routes in `routes/api.php`. Tests:
+> `tests/Feature/Api/DeviceApiTest.php` (9 passing). Device model gained
+> `paired_at`, `last_synced_at`, `isOwned()`, `isClaimable()`, `isPairingExpired()`,
+> `scopeStalePairing()`, and `PAIRING_TTL_MINUTES = 60`.
+>
+> **Pairing security (as built):**
+> - `POST /api/v1/pair/init {mac}` → `201 {device_token, pairing_code, name, expires_in:3600}`.
+>   Sets `paired_at = now()`, issues a fresh token (revokes old).
+> - If the device is **already owned** (a user is linked) → **409** (no re-pair /
+>   hijack). The owner must "Forget" it first.
+> - The pairing window is **1 hour**: `App\Console\Commands\PruneUnpairedDevices`
+>   (`devices:prune-unpaired`, scheduled every 15 min in `routes/console.php`)
+>   deletes unowned devices past the window + revokes their tokens. The ESP then
+>   gets 401 on next sync and re-pairs for a fresh code.
+> - **Filament claim flow** rewritten (`ListDevices`): users claim by the **pairing
+>   code shown on the device** — "Add Device" → photo manager (primary),
+>   "Join as Alarm Manager" → alarm manager. Claiming an unowned device only works
+>   while `isClaimable()` (within the window); a taken role can't be stolen.
+>
+> **Sync optimizations (as built):** see §2.6.
 
 ### 2.1 Pairing / auth model
 1. ESP boots, connects to WiFi, reads its own MAC.
@@ -135,6 +158,22 @@ pairing. All times sent as **local** strings (no timezone math on the device).
    `is_active=false` / `is_read=true` / pivot `is_shown=true`.
 6. **Important — authorize the resolved models belong to the calling device.** Never
    trust the path id alone.
+
+### 2.6 Bandwidth optimizations (as built)
+The ESP polls `/sync` often, so the payload is kept minimal and cacheable:
+- **ETag + 304:** `/sync` sets an `ETag` = hash of the stable content (alarms +
+  program + messages, excluding `server_time`). The ESP sends back
+  `If-None-Match: "<etag>"`; if nothing changed it gets an empty **304** and keeps
+  its cached data — no JSON, no photo re-download. This is the big win.
+- **Daily / fixed → exactly ONE photo** in `program.photos` (daily resolves the
+  photo pinned to today, else any unpinned). **Rotation →** up to `MAX_PHOTOS`.
+- **Alarms:** only `is_active = true`, trimmed fields, `time` as `HH:MM`.
+- **Messages:** only `is_read = false` AND `scheduled_at <= now()+24h`.
+- **Per-photo `hash`** (`sha1(image_path|updated_at)`): the ESP caches the decoded
+  image by hash and only re-downloads when the hash changes (photo replaced).
+- Photos are already 320×240 server-side, so no on-device scaling.
+- Further options if needed: gzip (nginx), a `?since=` delta param, or a separate
+  HEAD request for the photo hash before downloading.
 
 ### 2.5 Testing the API (before hardware)
 ```bash
@@ -345,8 +384,10 @@ local — compare directly to the ESP's local clock.
 ## Phase reference / status
 - **Phase 1 (DONE):** Filament backend — resources, role scoping, pairing-code
   device flow, daily calendar, lightbox, custom theme.
-- **Phase 2 (NEXT):** REST API above.
-- **Phase 3:** Raspberry Pi + Cloudflare Tunnel.
+- **Phase 2 (DONE):** REST API — pair/init (1h window, prune), sync (ETag/304,
+  minimal payload), dismiss/read/shown. 9 API tests passing.
+- **Phase 3 (NEXT):** Raspberry Pi + Cloudflare Tunnel. Remember: a real cron entry
+  `* * * * * php artisan schedule:run` is needed so `devices:prune-unpaired` runs.
 - **Phase 4:** ESP32 firmware.
 
 ## Test users (seeded)
