@@ -26,7 +26,7 @@ class Photo extends Model
     public function programs()
     {
         return $this->belongsToMany(Program::class, 'photo_program')
-            ->withPivot(['sort_order', 'scheduled_for', 'is_shown'])
+            ->withPivot(['scheduled_for', 'is_shown'])
             ->withTimestamps();
     }
 }

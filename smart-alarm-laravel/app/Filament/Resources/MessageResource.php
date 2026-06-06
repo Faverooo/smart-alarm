@@ -81,8 +81,8 @@ class MessageResource extends Resource
 
                         Forms\Components\DateTimePicker::make('scheduled_at')
                             ->label('Show At')
-                            ->timezone(config('app.timezone'))
-                            ->helperText('Pick the time in your local timezone.')
+                            ->seconds(false)
+                            ->helperText('Local time on the device (Europe/Rome).')
                             ->required(),
                     ]),
             ]);
@@ -102,7 +102,7 @@ class MessageResource extends Resource
                     ->limit(60)
                     ->searchable(),
                 Tables\Columns\TextColumn::make('scheduled_at')
-                    ->label('Scheduled At (UTC)')
+                    ->label('Scheduled At')
                     ->dateTime('d/m/Y H:i')
                     ->sortable(),
                 Tables\Columns\IconColumn::make('is_read')

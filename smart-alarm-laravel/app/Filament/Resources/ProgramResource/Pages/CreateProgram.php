@@ -18,4 +18,11 @@ class CreateProgram extends CreateRecord
 
         return $data;
     }
+
+    // Land on the edit page so the user can immediately add photos / use the calendar
+    protected function getRedirectUrl(): string
+    {
+        return $this->getResource()::getUrl('edit', ['record' => $this->record]);
+    }
 }
+

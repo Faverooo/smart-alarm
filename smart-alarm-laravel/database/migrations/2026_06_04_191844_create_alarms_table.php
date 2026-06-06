@@ -15,7 +15,7 @@ return new class extends Migration
             $table->id();
             $table->foreignId('device_id')->constrained()->cascadeOnDelete();
             $table->date('scheduled_date')->nullable();  // Null if it's a recurring alarm
-            $table->time('time'); // UTC!!!
+            $table->time('time'); // Local wall-clock time (Europe/Rome), no UTC conversion
             $table->json('days_of_week')->nullable(); // Es: ["Sunday", "Monday"]
             $table->boolean('is_active')->default(true);
             $table->timestamps();

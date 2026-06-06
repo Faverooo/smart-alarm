@@ -6,6 +6,7 @@ use App\Filament\Resources\DeviceResource\Pages;
 use App\Models\Device;
 use Filament\Forms;
 use Filament\Forms\Form;
+use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
@@ -158,7 +159,7 @@ class DeviceResource extends Resource
                         ->options(function () {
                             $user = auth()->user();
 
-                            return $user->programs()->where('is_active', true)->pluck('name', 'id');
+                            return $user->programs()->pluck('name', 'id');
                         })
                         ->searchable()
                         ->nullable()
@@ -202,6 +203,46 @@ class DeviceResource extends Resource
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),
+
+                // Photo manager: claim the empty alarm-manager slot for themselves
+                Tables\Actions\Action::make('becomeAlarmManager')
+                    ->label('Become Alarm Manager')
+                    ->icon('heroicon-o-user-plus')
+                    ->color('success')
+                    ->requiresConfirmation()
+                    ->modalHeading('Manage alarms on this device yourself?')
+                    ->modalDescription('You will be set as the alarm manager for this device.')
+                    ->visible(fn (Device $record) => ! auth()->user()->is_admin
+                        && $record->photo_user_id === auth()->id()
+                        && $record->alarm_user_id === null)
+                    ->action(function (Device $record): void {
+                        $record->update(['alarm_user_id' => auth()->id()]);
+
+                        Notification::make()
+                            ->title('You are now the alarm manager for this device.')
+                            ->success()
+                            ->send();
+                    }),
+
+                // Photo manager: clear whoever currently manages alarms
+                Tables\Actions\Action::make('removeAlarmManager')
+                    ->label('Remove Alarm Manager')
+                    ->icon('heroicon-o-user-minus')
+                    ->color('warning')
+                    ->requiresConfirmation()
+                    ->modalHeading('Remove the current alarm manager?')
+                    ->modalDescription('The alarm-manager slot will become empty. You can re-share the pairing code or take it yourself.')
+                    ->visible(fn (Device $record) => ! auth()->user()->is_admin
+                        && $record->photo_user_id === auth()->id()
+                        && $record->alarm_user_id !== null)
+                    ->action(function (Device $record): void {
+                        $record->update(['alarm_user_id' => null]);
+
+                        Notification::make()
+                            ->title('Alarm manager removed.')
+                            ->success()
+                            ->send();
+                    }),
 
                 // Non-admins: leave the device (nullify their role)
                 Tables\Actions\Action::make('forget')

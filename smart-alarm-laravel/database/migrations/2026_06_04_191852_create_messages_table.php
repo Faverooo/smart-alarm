@@ -15,7 +15,7 @@ return new class extends Migration
             $table->id();
             $table->foreignId('device_id')->constrained()->cascadeOnDelete();
             $table->text('text_content'); // Only text
-            $table->dateTime('scheduled_at'); // When to show(UTC)
+            $table->dateTime('scheduled_at'); // When to show (local time, Europe/Rome)
             $table->boolean('is_read')->default(false); // true at click
             $table->timestamps();
         });

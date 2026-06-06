@@ -6,18 +6,25 @@ use Illuminate\Database\Eloquent\Model;
 
 class Program extends Model
 {
+    // Maximum number of photos the ESP32 can hold for a rotation/daily program
+    public const MAX_PHOTOS = 10;
+
     protected $fillable = [
         'user_id',
         'name',
         'type',
         'interval_minutes',
-        'is_active',
     ];
 
     protected $casts = [
-        'is_active' => 'boolean',
         'interval_minutes' => 'integer',
     ];
+
+    // How many photos this program type allows
+    public function photoLimit(): int
+    {
+        return $this->type === 'fixed' ? 1 : self::MAX_PHOTOS;
+    }
 
     public function user()
     {
@@ -27,9 +34,8 @@ class Program extends Model
     public function photos()
     {
         return $this->belongsToMany(Photo::class, 'photo_program')
-            ->withPivot(['sort_order', 'scheduled_for', 'is_shown'])
-            ->withTimestamps()
-            ->orderByPivot('sort_order');
+            ->withPivot(['scheduled_for', 'is_shown'])
+            ->withTimestamps();
     }
 
     public function devices()

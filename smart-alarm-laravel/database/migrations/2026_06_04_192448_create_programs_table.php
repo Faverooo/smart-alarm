@@ -16,8 +16,7 @@ return new class extends Migration
             $table->foreignId('user_id')->constrained()->cascadeOnDelete();
             $table->string('name')->nullable();
             $table->string('type')->default('fixed'); // fixed | daily | rotation
-            $table->integer('interval_minutes')->nullable();
-            $table->boolean('is_active')->default(true);
+            $table->integer('interval_minutes')->nullable(); // Only used by the "rotation" type
             $table->timestamps();
         });
     }

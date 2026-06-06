@@ -61,12 +61,19 @@ class ProgramResource extends Resource
                         Forms\Components\Select::make('type')
                             ->label('Type')
                             ->options([
-                                'fixed'    => 'Fixed — always show one photo',
-                                'daily'    => 'Daily — one new photo per day (queue)',
+                                'fixed'    => 'Fixed — a single photo, always shown',
                                 'rotation' => 'Rotation — cycle through photos every X minutes',
+                                'daily'    => 'Daily — a different photo each day (calendar)',
                             ])
                             ->default('fixed')
                             ->live()
+                            // Type is structural: lock it after creation. To change it,
+                            // delete the program and create a new one.
+                            ->disabled(fn (string $operation) => $operation === 'edit')
+                            ->dehydrated()
+                            ->helperText(fn (string $operation) => $operation === 'edit'
+                                ? 'Type cannot be changed after creation. Delete the program to start over.'
+                                : 'Choose carefully — this cannot be changed later.')
                             ->required(),
 
                         Forms\Components\TextInput::make('interval_minutes')
@@ -76,10 +83,20 @@ class ProgramResource extends Resource
                             ->placeholder('30')
                             ->visible(fn (Forms\Get $get) => $get('type') === 'rotation')
                             ->requiredIf('type', 'rotation'),
+                    ]),
 
-                        Forms\Components\Toggle::make('is_active')
-                            ->label('Active')
-                            ->default(true),
+                // Daily programs manage photos through a clickable calendar (one per day).
+                // The calendar's action modals are teleported to <body> in its blade so their
+                // <form> doesn't nest inside this page form (which would push "Save changes"
+                // out of the form and stop it saving).
+                Forms\Components\Section::make('Daily Calendar')
+                    ->description('Click a day to set the photo shown on that date. Click again to replace it.')
+                    ->visible(fn (string $operation, Forms\Get $get) => $operation === 'edit' && $get('type') === 'daily')
+                    ->schema([
+                        Forms\Components\Livewire::make(
+                            \App\Livewire\DailyPhotoCalendar::class,
+                            fn ($record) => ['program' => $record],
+                        ),
                     ]),
 
                 // Admins can assign programs to any user
@@ -118,9 +135,6 @@ class ProgramResource extends Resource
                     ->label('Devices')
                     ->counts('devices')
                     ->badge(),
-                Tables\Columns\IconColumn::make('is_active')
-                    ->label('Active')
-                    ->boolean(),
                 Tables\Columns\TextColumn::make('user.name')
                     ->label('Owner')
                     ->visible(fn () => auth()->user()->is_admin),

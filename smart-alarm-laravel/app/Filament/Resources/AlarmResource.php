@@ -76,8 +76,8 @@ class AlarmResource extends Resource
                 Forms\Components\Section::make('Schedule')
                     ->schema([
                         Forms\Components\TimePicker::make('time')
-                            ->label('Alarm Time (local)')
-                            ->helperText('Enter time in your local timezone — it will be stored as UTC automatically.')
+                            ->label('Alarm Time')
+                            ->helperText('Local time on the device (Europe/Rome).')
                             ->seconds(false)
                             ->required(),
 
@@ -120,7 +120,8 @@ class AlarmResource extends Resource
                     ->sortable()
                     ->searchable(),
                 Tables\Columns\TextColumn::make('time')
-                    ->label('Time (UTC)')
+                    ->label('Time')
+                    ->formatStateUsing(fn ($state) => substr((string) $state, 0, 5))
                     ->sortable(),
                 Tables\Columns\TextColumn::make('scheduled_date')
                     ->label('One-time Date')

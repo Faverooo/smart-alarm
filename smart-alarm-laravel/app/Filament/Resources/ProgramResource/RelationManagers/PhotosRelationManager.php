@@ -5,165 +5,223 @@ namespace App\Filament\Resources\ProgramResource\RelationManagers;
 use App\Filament\Resources\PhotoResource\Pages\CreatePhoto;
 use App\Models\Photo;
 use Filament\Forms;
-use Filament\Forms\Form;
+use Filament\Notifications\Notification;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Tables;
 use Filament\Tables\Table;
-use Illuminate\Support\Facades\Storage; // kept for potential future use
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Storage;
 
 class PhotosRelationManager extends RelationManager
 {
     protected static string $relationship = 'photos';
-    protected static ?string $recordTitleAttribute = 'caption';
 
-    public function form(Form $form): Form
+    // Photos are identified visually by their preview, not by a name.
+    protected static ?string $recordTitleAttribute = 'id';
+
+    protected static ?string $title = 'Photos';
+
+    // Daily programs use the calendar embedded in the form instead of this table.
+    public static function canViewForRecord(Model $ownerRecord, string $pageClass): bool
     {
-        return $form->schema([
-            Forms\Components\TextInput::make('caption')->maxLength(255),
-        ]);
+        return $ownerRecord->type !== 'daily';
+    }
+
+    // How many more photos this program can still accept (read fresh so a saved
+    // type change — e.g. rotation -> fixed — is respected immediately).
+    protected function remainingSlots(): int
+    {
+        $program = $this->getOwnerRecord()->fresh();
+
+        return max(0, $program->photoLimit() - $program->photos()->count());
     }
 
     public function table(Table $table): Table
     {
+        $program = $this->getOwnerRecord();
+        $isFixed = $program->type === 'fixed';
+        $isDaily = $program->type === 'daily';
+
         return $table
             ->columns([
-                Tables\Columns\ImageColumn::make('image_path')
+                Tables\Columns\ViewColumn::make('image_path')
                     ->label('Preview')
-                    ->disk('public')
-                    ->square()
-                    ->size(56),
+                    ->view('tables.columns.photo-lightbox'),
                 Tables\Columns\TextColumn::make('caption')
                     ->label('Caption')
-                    ->placeholder('—'),
-                Tables\Columns\TextColumn::make('pivot.sort_order')
-                    ->label('Order')
-                    ->sortable(),
+                    ->placeholder('No caption')
+                    ->wrap(),
                 Tables\Columns\TextColumn::make('pivot.scheduled_for')
-                    ->label('Show On')
+                    ->label('Day')
                     ->date('d/m/Y')
-                    ->placeholder('Any day'),
-                Tables\Columns\IconColumn::make('pivot.is_shown')
-                    ->label('Shown')
-                    ->boolean(),
+                    ->placeholder('Any day')
+                    ->visible($isDaily),
             ])
-            ->reorderable('sort_order')
+            ->emptyStateHeading($isFixed ? 'No photo set yet' : 'No photos yet')
+            ->emptyStateDescription(
+                $isFixed
+                    ? 'Upload the single photo this program should always show.'
+                    : 'Upload up to ' . $program->photoLimit() . ' photos for this program.'
+            )
             ->headerActions([
-                // Attach an existing photo
-                Tables\Actions\Action::make('attach')
-                    ->label('Attach Existing Photo')
-                    ->icon('heroicon-o-link')
-                    ->modalHeading('Attach a Photo to this Program')
-                    ->form(function () {
-                        $user = auth()->user();
-                        $photos = $user->is_admin
-                            ? Photo::all()
-                            : $user->photos()->get();
-
-                        $options = $photos->mapWithKeys(
-                            fn ($p) => [$p->id => $p->caption ?? "Photo #{$p->id}"]
-                        )->toArray();
-
-                        return [
-                            Forms\Components\Select::make('photo_id')
-                                ->label('Photo')
-                                ->options($options)
-                                ->searchable()
-                                ->required(),
-                            Forms\Components\TextInput::make('sort_order')
-                                ->label('Sort Order')
-                                ->numeric()
-                                ->default(0),
-                            Forms\Components\DatePicker::make('scheduled_for')
-                                ->label('Show On Date')
-                                ->helperText('Optional: pin this photo to a specific date (e.g. a birthday).'),
-                        ];
-                    })
-                    ->action(function (array $data): void {
-                        $this->getOwnerRecord()->photos()->attach($data['photo_id'], [
-                            'sort_order'    => $data['sort_order'] ?? 0,
-                            'scheduled_for' => $data['scheduled_for'] ?? null,
-                            'is_shown'      => false,
-                        ]);
-                    }),
-
-                // Upload a new photo and attach it in one step
-                Tables\Actions\Action::make('upload')
-                    ->label('Upload & Attach New Photo')
+                // Upload one or more new photos straight into this program
+                Tables\Actions\Action::make('uploadPhotos')
+                    ->label($isFixed ? 'Set Photo' : 'Upload Photos')
                     ->icon('heroicon-o-arrow-up-tray')
                     ->color('success')
-                    ->modalHeading('Upload a New Photo')
-                    ->form([
-                        Forms\Components\FileUpload::make('image_path')
-                            ->label('Image (auto-resized to 320×240 on save)')
+                    ->visible(fn () => $this->remainingSlots() > 0)
+                    ->modalHeading($isFixed ? 'Set the Program Photo' : 'Upload Photos')
+                    ->form(fn () => [
+                        Forms\Components\FileUpload::make('images')
+                            ->label($isFixed ? 'Image' : 'Images')
                             ->image()
+                            ->multiple(! $isFixed)
+                            ->maxFiles($this->remainingSlots())
                             ->disk('public')
                             ->directory('photos')
                             ->maxSize(10240)
+                            ->helperText('Auto-resized to 320×240 for the device. '
+                                . ($isFixed ? '' : 'Up to ' . $this->remainingSlots() . ' more photo(s).'))
                             ->required(),
                         Forms\Components\TextInput::make('caption')
-                            ->label('Caption')
-                            ->maxLength(255),
-                        Forms\Components\TextInput::make('sort_order')
-                            ->label('Sort Order')
-                            ->numeric()
-                            ->default(0),
-                        Forms\Components\DatePicker::make('scheduled_for')
-                            ->label('Show On Date')
-                            ->helperText('Optional: pin this photo to a specific date.'),
+                            ->label('Caption (optional)')
+                            ->maxLength(255)
+                            ->helperText($isFixed ? null : 'Applied to every photo in this upload — edit them individually afterwards.'),
                     ])
                     ->action(function (array $data): void {
-                        $photo = Photo::create([
-                            'user_id'    => auth()->id(),
-                            'image_path' => $data['image_path'],
-                            'caption'    => $data['caption'] ?? null,
-                        ]);
+                        $remaining = $this->remainingSlots();
 
-                        // Resize for ESP32 display (requires php-gd)
-                        CreatePhoto::resizeForEsp32($photo);
+                        if ($remaining < 1) {
+                            $this->limitReachedNotification();
 
-                        $this->getOwnerRecord()->photos()->attach($photo->id, [
-                            'sort_order'    => $data['sort_order'] ?? 0,
-                            'scheduled_for' => $data['scheduled_for'] ?? null,
-                            'is_shown'      => false,
-                        ]);
+                            return;
+                        }
+
+                        $paths = array_slice((array) $data['images'], 0, $remaining);
+
+                        foreach ($paths as $path) {
+                            $photo = Photo::create([
+                                'user_id'    => auth()->id(),
+                                'image_path' => $path,
+                                'caption'    => $data['caption'] ?? null,
+                            ]);
+
+                            CreatePhoto::resizeForEsp32($photo);
+
+                            $this->getOwnerRecord()->photos()->attach($photo->id, ['is_shown' => false]);
+                        }
+                    }),
+
+                // Attach a photo the user already uploaded elsewhere — shown with previews
+                Tables\Actions\Action::make('attachExisting')
+                    ->label('Attach Existing')
+                    ->icon('heroicon-o-link')
+                    ->visible(fn () => $this->remainingSlots() > 0 && count($this->attachableOptions()) > 0)
+                    ->modalHeading('Attach Existing Photos')
+                    ->form(fn () => [
+                        // Always a multi-select (capped) so the value is consistently an
+                        // array — a single-value select tripped "must be an array".
+                        Forms\Components\Select::make('photo_ids')
+                            ->label($isFixed ? 'Photo' : 'Photos')
+                            ->multiple()
+                            ->options($this->attachableOptions())
+                            ->allowHtml()
+                            ->searchable()
+                            ->maxItems($this->remainingSlots())
+                            ->required(),
+                    ])
+                    ->action(function (array $data): void {
+                        $remaining = $this->remainingSlots();
+
+                        if ($remaining < 1) {
+                            $this->limitReachedNotification();
+
+                            return;
+                        }
+
+                        $ids = array_slice((array) $data['photo_ids'], 0, $remaining);
+
+                        foreach ($ids as $photoId) {
+                            $this->getOwnerRecord()->photos()->attach($photoId, ['is_shown' => false]);
+                        }
                     }),
             ])
             ->actions([
-                Tables\Actions\Action::make('editPivot')
-                    ->label('Edit Order/Date')
+                // Edit a photo's caption (and, for daily programs, the day it shows)
+                Tables\Actions\Action::make('editPhoto')
+                    ->label('Edit')
                     ->icon('heroicon-o-pencil')
-                    ->modalHeading('Edit Photo Settings in this Program')
-                    ->form(function (Photo $record): array {
-                        $pivot = $this->getOwnerRecord()
-                            ->photos()
+                    ->button()
+                    ->outlined()
+                    ->modalHeading('Edit Photo')
+                    ->fillForm(fn (Photo $record) => [
+                        'caption'       => $record->caption,
+                        'scheduled_for' => $this->getOwnerRecord()->photos()
                             ->where('photo_id', $record->id)
-                            ->first()?->pivot;
+                            ->first()?->pivot?->scheduled_for,
+                    ])
+                    ->form([
+                        Forms\Components\TextInput::make('caption')
+                            ->label('Caption')
+                            ->maxLength(255),
+                        Forms\Components\DatePicker::make('scheduled_for')
+                            ->label('Show On')
+                            ->helperText('Leave empty to let the device pick automatically.')
+                            ->visible($isDaily),
+                    ])
+                    ->action(function (Photo $record, array $data) use ($isDaily): void {
+                        $record->update(['caption' => $data['caption'] ?? null]);
 
-                        return [
-                            Forms\Components\TextInput::make('sort_order')
-                                ->numeric()
-                                ->default($pivot?->sort_order ?? 0),
-                            Forms\Components\DatePicker::make('scheduled_for')
-                                ->label('Show On Date')
-                                ->default($pivot?->scheduled_for),
-                            Forms\Components\Toggle::make('is_shown')
-                                ->label('Already Shown')
-                                ->default($pivot?->is_shown ?? false),
-                        ];
-                    })
-                    ->action(function (Photo $record, array $data): void {
-                        $this->getOwnerRecord()->photos()->updateExistingPivot($record->id, [
-                            'sort_order'    => $data['sort_order'] ?? 0,
-                            'scheduled_for' => $data['scheduled_for'] ?? null,
-                            'is_shown'      => $data['is_shown'] ?? false,
-                        ]);
+                        if ($isDaily) {
+                            $this->getOwnerRecord()->photos()->updateExistingPivot($record->id, [
+                                'scheduled_for' => $data['scheduled_for'] ?? null,
+                            ]);
+                        }
                     }),
-                Tables\Actions\Action::make('detach')
+
+                // Remove the photo from this program (custom name avoids the built-in
+                // DetachAction "detach" collision, which made the button disappear)
+                Tables\Actions\Action::make('removePhoto')
                     ->label('Remove')
-                    ->icon('heroicon-o-x-mark')
+                    ->icon('heroicon-o-trash')
                     ->color('danger')
+                    ->button()
                     ->requiresConfirmation()
+                    ->modalHeading('Remove this photo from the program?')
                     ->action(fn (Photo $record) => $this->getOwnerRecord()->photos()->detach($record->id)),
             ]);
+    }
+
+    protected function limitReachedNotification(): void
+    {
+        Notification::make()
+            ->title('Photo limit reached')
+            ->body('This program type does not allow any more photos. Remove one first.')
+            ->warning()
+            ->send();
+    }
+
+    // Build <img> option labels so the picker shows previews instead of names.
+    protected function attachableOptions(): array
+    {
+        $program = $this->getOwnerRecord();
+        $user = auth()->user();
+
+        $query = $user->is_admin ? Photo::query() : $user->photos();
+        $attachedIds = $program->photos()->pluck('photos.id')->all();
+
+        return $query->latest()
+            ->get()
+            ->reject(fn (Photo $p) => in_array($p->id, $attachedIds))
+            ->mapWithKeys(function (Photo $p) {
+                $url = Storage::disk('public')->url($p->image_path);
+                $caption = $p->caption ? ' ' . e($p->caption) : ' Photo #' . $p->id;
+                $label = '<img src="' . e($url) . '" '
+                    . 'style="height:40px;width:40px;object-fit:cover;border-radius:6px;'
+                    . 'display:inline-block;margin-right:8px;vertical-align:middle">' . $caption;
+
+                return [$p->id => $label];
+            })
+            ->toArray();
     }
 }

@@ -79,11 +79,9 @@ class PhotoResource extends Resource
     {
         return $table
             ->columns([
-                Tables\Columns\ImageColumn::make('image_path')
+                Tables\Columns\ViewColumn::make('image_path')
                     ->label('Preview')
-                    ->disk('public')
-                    ->square()
-                    ->size(64),
+                    ->view('tables.columns.photo-lightbox'),
                 Tables\Columns\TextColumn::make('caption')
                     ->label('Caption')
                     ->placeholder('—')

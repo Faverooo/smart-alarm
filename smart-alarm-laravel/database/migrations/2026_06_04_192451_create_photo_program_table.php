@@ -15,11 +15,9 @@ return new class extends Migration
             $table->id();
             $table->foreignId('photo_id')->constrained()->cascadeOnDelete();
             $table->foreignId('program_id')->constrained()->cascadeOnDelete();
-            // 1. Order of the photo in the program (0-based index)
-            $table->integer('sort_order')->default(0);
-            // 2. Date to show (optional)
+            // Optional date to pin a photo to a specific day (used by the "daily" type)
             $table->date('scheduled_for')->nullable();
-            // 3. True when shown, false otherwise
+            // Set to true by the ESP32 once the photo has been shown
             $table->boolean('is_shown')->default(false);
             $table->timestamps();
         });

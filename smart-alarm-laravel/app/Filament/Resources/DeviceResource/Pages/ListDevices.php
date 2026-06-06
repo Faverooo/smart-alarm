@@ -46,10 +46,23 @@ class ListDevices extends ListRecords
                         ->default(false),
                 ])
                 ->action(function (array $data): void {
+                    $mac = strtoupper($data['mac_address']);
+
+                    // Prevent registering the same physical device twice
+                    if (Device::where('mac_address', $mac)->exists()) {
+                        Notification::make()
+                            ->title('This device is already registered')
+                            ->body('A device with that MAC address already exists. If it is yours, ask the current owner for its pairing code instead.')
+                            ->danger()
+                            ->send();
+
+                        return;
+                    }
+
                     $code = strtoupper(Str::random(6));
 
-                    $device = Device::create([
-                        'mac_address'   => strtoupper($data['mac_address']),
+                    Device::create([
+                        'mac_address'   => $mac,
                         'name'          => $data['name'] ?? null,
                         'pairing_code'  => $code,
                         'photo_user_id' => auth()->id(),
@@ -58,7 +71,7 @@ class ListDevices extends ListRecords
 
                     Notification::make()
                         ->title("Device registered! Pairing code: {$code}")
-                        ->body('Share this code with the person who will manage alarms. They will find the "Join with Code" button on their Device page.')
+                        ->body('Share this code with the person who will manage alarms. They will find the "Join with Pairing Code" button on their Device page.')
                         ->success()
                         ->persistent()
                         ->send();
