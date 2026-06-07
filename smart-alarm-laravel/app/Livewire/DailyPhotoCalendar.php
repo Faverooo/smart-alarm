@@ -15,7 +15,6 @@ use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
 use Filament\Forms\Get;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
 use Livewire\Component;
 
 class DailyPhotoCalendar extends Component implements HasActions, HasForms
@@ -103,7 +102,7 @@ class DailyPhotoCalendar extends Component implements HasActions, HasForms
             'inPeriod' => $inPeriod,
             'photo'    => $photo ? [
                 'id'      => $photo->id,
-                'url'     => Storage::disk('public')->url($photo->image_path),
+                'url'     => $photo->url,
                 'caption' => $photo->caption,
             ] : null,
         ];
@@ -159,7 +158,7 @@ class DailyPhotoCalendar extends Component implements HasActions, HasForms
         $photos = $user->is_admin ? Photo::query()->latest()->get() : $user->photos()->latest()->get();
 
         return $photos->mapWithKeys(function (Photo $p) {
-            $url = Storage::disk('public')->url($p->image_path);
+            $url = $p->url;
             $label = '<img src="'.e($url).'" '
                 .'style="height:36px;width:48px;object-fit:cover;border-radius:6px;'
                 .'display:inline-block;margin-right:8px;vertical-align:middle">'
@@ -196,11 +195,18 @@ class DailyPhotoCalendar extends Component implements HasActions, HasForms
                     ->live(),
 
                 Forms\Components\FileUpload::make('image')
-                    ->label('Image (auto-resized to 320×240)')
+                    ->label('Image')
                     ->image()
-                    ->disk('public')
+                    // Live 4:3 crop selector locked to the 320×240 screen.
+                    ->imageEditor()
+                    ->imageEditorAspectRatios(['4:3'])
+                    ->imageEditorViewportWidth(320)
+                    ->imageEditorViewportHeight(240)
+                    ->disk(Photo::DISK)
+                    ->visibility('private')
                     ->directory('photos')
                     ->maxSize(10240)
+                    ->helperText('Shown on a 4:3 (320×240) screen — use the pencil to crop.')
                     ->visible(fn (Get $get) => $get('source') === 'upload')
                     ->requiredIf('source', 'upload'),
 

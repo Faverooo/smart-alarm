@@ -17,8 +17,13 @@ class EditDevice extends EditRecord
         $user = auth()->user();
         $actions = [];
 
-        // Photo managers can regenerate the pairing code to invite a new alarm manager
-        if (! $user->is_admin && $this->record->photo_user_id === $user->id) {
+        // Photo managers can rotate the invite code — but only while the alarm slot
+        // is open. Once both managers are set the code is intentionally null (no
+        // standing join secret); to invite a different alarm manager, remove the
+        // current one first (that frees the slot and mints a fresh code).
+        if (! $user->is_admin
+            && $this->record->photo_user_id === $user->id
+            && $this->record->alarm_user_id === null) {
             $actions[] = Actions\Action::make('regenerateCode')
                 ->label('Regenerate Pairing Code')
                 ->icon('heroicon-o-arrow-path')

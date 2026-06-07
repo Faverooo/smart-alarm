@@ -1,7 +1,6 @@
 @php
     $record = $getRecord();
-    $path = $record?->image_path;
-    $url = $path ? \Illuminate\Support\Facades\Storage::disk('public')->url($path) : null;
+    $url = $record?->url; // session-gated streaming route (see Photo::getUrlAttribute)
     $caption = $record?->caption;
 @endphp
 

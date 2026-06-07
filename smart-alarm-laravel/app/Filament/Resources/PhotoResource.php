@@ -54,10 +54,18 @@ class PhotoResource extends Resource
                         Forms\Components\FileUpload::make('image_path')
                             ->label('Image')
                             ->image()
-                            ->disk('public')
+                            // Live crop selector locked to the device's 4:3 (320×240)
+                            // screen — the user just drags the fixed-ratio box to pick
+                            // what to keep; no other shape is possible.
+                            ->imageEditor()
+                            ->imageEditorAspectRatios(['4:3'])
+                            ->imageEditorViewportWidth(320)
+                            ->imageEditorViewportHeight(240)
+                            ->disk(\App\Models\Photo::DISK)
+                            ->visibility('private')
                             ->directory('photos')
                             ->maxSize(10240)
-                            ->helperText('Automatically resized to 320×240 px on upload.')
+                            ->helperText('Shown on a 4:3 (320×240) screen. If your photo isn’t 4:3, click the pencil to choose the part to keep.')
                             ->required(),
                         Forms\Components\TextInput::make('caption')
                             ->label('Caption')

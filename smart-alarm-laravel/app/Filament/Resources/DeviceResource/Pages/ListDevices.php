@@ -8,7 +8,6 @@ use Filament\Actions;
 use Filament\Forms;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
-use Illuminate\Support\Str;
 
 class ListDevices extends ListRecords
 {
@@ -23,21 +22,21 @@ class ListDevices extends ListRecords
         }
 
         return [
-            // Register a brand new device (user becomes photo manager)
-            Actions\Action::make('registerDevice')
-                ->label('Register New Device')
+            // Claim a self-registered device as its photo/message manager (primary owner)
+            Actions\Action::make('claimDevice')
+                ->label('Add Device')
                 ->icon('heroicon-o-plus-circle')
                 ->color('primary')
-                ->modalHeading('Register a New Device')
-                ->modalDescription('Enter the MAC address shown on the device screen when it first boots.')
+                ->modalHeading('Add a Device')
+                ->modalDescription('Enter the pairing code shown on the device screen. The code is valid for one hour after the device powers on.')
                 ->form([
-                    Forms\Components\TextInput::make('mac_address')
-                        ->label('Device MAC Address')
-                        ->placeholder('AA:BB:CC:DD:EE:FF')
+                    Forms\Components\TextInput::make('pairing_code')
+                        ->label('Pairing Code')
+                        ->placeholder('ABCD12')
                         ->required()
-                        ->rules(['regex:/^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$/']),
+                        ->maxLength(6),
                     Forms\Components\TextInput::make('name')
-                        ->label('Device Name')
+                        ->label('Device Name (optional)')
                         ->placeholder('Bedroom Alarm')
                         ->maxLength(100),
                     Forms\Components\Toggle::make('also_alarm_manager')
@@ -45,45 +44,20 @@ class ListDevices extends ListRecords
                         ->helperText('Turn on if you are setting this up for yourself alone.')
                         ->default(false),
                 ])
-                ->action(function (array $data): void {
-                    $mac = strtoupper($data['mac_address']);
+                ->action(fn (array $data) => $this->claimRole(
+                    $data['pairing_code'],
+                    role: 'photo',
+                    name: $data['name'] ?? null,
+                    alsoAlarm: (bool) ($data['also_alarm_manager'] ?? false),
+                )),
 
-                    // Prevent registering the same physical device twice
-                    if (Device::where('mac_address', $mac)->exists()) {
-                        Notification::make()
-                            ->title('This device is already registered')
-                            ->body('A device with that MAC address already exists. If it is yours, ask the current owner for its pairing code instead.')
-                            ->danger()
-                            ->send();
-
-                        return;
-                    }
-
-                    $code = strtoupper(Str::random(6));
-
-                    Device::create([
-                        'mac_address'   => $mac,
-                        'name'          => $data['name'] ?? null,
-                        'pairing_code'  => $code,
-                        'photo_user_id' => auth()->id(),
-                        'alarm_user_id' => $data['also_alarm_manager'] ? auth()->id() : null,
-                    ]);
-
-                    Notification::make()
-                        ->title("Device registered! Pairing code: {$code}")
-                        ->body('Share this code with the person who will manage alarms. They will find the "Join with Pairing Code" button on their Device page.')
-                        ->success()
-                        ->persistent()
-                        ->send();
-                }),
-
-            // Join an existing device as alarm manager using a pairing code
+            // Join an already-owned device as its alarm manager (second person)
             Actions\Action::make('joinDevice')
-                ->label('Join with Pairing Code')
+                ->label('Join as Alarm Manager')
                 ->icon('heroicon-o-key')
                 ->color('gray')
                 ->modalHeading('Join a Device')
-                ->modalDescription('Enter the 6-character pairing code given to you by the device owner.')
+                ->modalDescription('Enter the pairing code shown on the device (or shared by the photo manager).')
                 ->form([
                     Forms\Components\TextInput::make('pairing_code')
                         ->label('Pairing Code')
@@ -91,36 +65,69 @@ class ListDevices extends ListRecords
                         ->maxLength(6)
                         ->required(),
                 ])
-                ->action(function (array $data): void {
-                    $device = Device::where('pairing_code', strtoupper($data['pairing_code']))->first();
-
-                    if (! $device) {
-                        Notification::make()
-                            ->title('Invalid pairing code')
-                            ->body('No device found with that code. Double-check with the device owner.')
-                            ->danger()
-                            ->send();
-
-                        return;
-                    }
-
-                    if ($device->alarm_user_id !== null && $device->alarm_user_id !== auth()->id()) {
-                        Notification::make()
-                            ->title('Device already has an alarm manager')
-                            ->body('Ask the device owner to reset the pairing code if you need to change the alarm manager.')
-                            ->warning()
-                            ->send();
-
-                        return;
-                    }
-
-                    $device->update(['alarm_user_id' => auth()->id()]);
-
-                    Notification::make()
-                        ->title('Joined "' . $device->display_name . '" as alarm manager!')
-                        ->success()
-                        ->send();
-                }),
+                ->action(fn (array $data) => $this->claimRole($data['pairing_code'], role: 'alarm')),
         ];
+    }
+
+    /**
+     * Link the current user to a device (by the code shown on its screen) in the
+     * given role. Enforces the pairing rules: an unclaimed device can only be
+     * taken while its 1-hour pairing window is open, and a role can't be stolen.
+     */
+    private function claimRole(string $code, string $role, ?string $name = null, bool $alsoAlarm = false): void
+    {
+        $device = Device::where('pairing_code', strtoupper(trim($code)))->first();
+
+        if (! $device) {
+            Notification::make()
+                ->title('Invalid pairing code')
+                ->body('No device found with that code. Check the code on the device screen.')
+                ->danger()
+                ->send();
+
+            return;
+        }
+
+        // The 1-hour window only gates a device that nobody has claimed yet.
+        if (! $device->isOwned() && ! $device->isClaimable()) {
+            Notification::make()
+                ->title('Pairing window expired')
+                ->body('Restart the device to generate a fresh pairing code, then try again.')
+                ->danger()
+                ->send();
+
+            return;
+        }
+
+        $column = $role === 'alarm' ? 'alarm_user_id' : 'photo_user_id';
+
+        if ($device->{$column} !== null && $device->{$column} !== auth()->id()) {
+            Notification::make()
+                ->title('Role already taken')
+                ->body("This device already has a {$role} manager.")
+                ->warning()
+                ->send();
+
+            return;
+        }
+
+        $device->fill([$column => auth()->id()]);
+
+        if ($role === 'photo') {
+            if ($name) {
+                $device->name = $name;
+            }
+            if ($alsoAlarm && $device->alarm_user_id === null) {
+                $device->alarm_user_id = auth()->id();
+            }
+        }
+
+        $device->save();
+
+        Notification::make()
+            ->title('Device added: "'.$device->display_name.'"')
+            ->body($role === 'alarm' ? 'You manage alarms on this device.' : 'You manage photos & messages on this device.')
+            ->success()
+            ->send();
     }
 }

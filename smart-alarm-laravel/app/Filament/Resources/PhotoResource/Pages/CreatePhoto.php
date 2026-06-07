@@ -28,18 +28,26 @@ class CreatePhoto extends CreateRecord
         $this->resizeForEsp32($this->record);
     }
 
-    // Resize to 320x240 for the 3.2" TFT display.
-    // Requires php-gd (sudo apt-get install php8.3-gd on the Raspberry Pi).
+    // Resize to 320x240 for the 3.2" TFT display. Idempotent: a file that is
+    // already exactly 320x240 is left untouched, so caption-only edits don't
+    // re-encode it (which would bump updated_at → change the sync hash → force a
+    // needless ESP re-download). Requires php-gd (php8.3-gd on the Raspberry Pi).
     public static function resizeForEsp32(Photo $photo): void
     {
-        if (! extension_loaded('gd')) {
+        if (! extension_loaded('gd') || ! $photo->image_path) {
             return;
         }
 
         try {
-            $path = Storage::disk('public')->path($photo->image_path);
+            $path = Storage::disk(Photo::DISK)->path($photo->image_path);
             $manager = new ImageManager(new Driver());
-            $manager->decode($path)->cover(320, 240)->save($path);
+            $image = $manager->decode($path);
+
+            if ($image->width() === 320 && $image->height() === 240) {
+                return; // already device-sized
+            }
+
+            $image->cover(320, 240)->save($path);
         } catch (\Throwable $e) {
             \Log::warning("Photo resize failed for photo #{$photo->id}: {$e->getMessage()}");
         }

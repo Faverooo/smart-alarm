@@ -35,4 +35,18 @@ return [
         ],
     ],
 
+    // ESP32 over-the-air firmware. The device polls GET /api/v1/firmware/latest
+    // with its current version; if `version` here is higher it downloads `url`.
+    'firmware' => [
+        'version'   => env('FIRMWARE_VERSION'),       // e.g. "1.4.0"; null = no OTA configured
+        'url'       => env('FIRMWARE_URL'),           // absolute URL to the .bin
+        'mandatory' => env('FIRMWARE_MANDATORY', false),
+    ],
+
+    // Target resolution for photos rendered for the device's TFT.
+    'device_display' => [
+        'width'  => env('DEVICE_DISPLAY_WIDTH', 320),
+        'height' => env('DEVICE_DISPLAY_HEIGHT', 240),
+    ],
+
 ];
