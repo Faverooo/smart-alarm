@@ -16,4 +16,12 @@ class EditPhoto extends EditRecord
             Actions\DeleteAction::make(),
         ];
     }
+
+    // If the image file was replaced, re-resize it to 320x240 so the public
+    // `url` is always device-sized (the resize is idempotent — a no-op when the
+    // file is already 320x240, e.g. caption-only edits).
+    protected function afterSave(): void
+    {
+        CreatePhoto::resizeForEsp32($this->record);
+    }
 }

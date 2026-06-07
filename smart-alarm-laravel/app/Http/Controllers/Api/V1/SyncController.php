@@ -28,6 +28,7 @@ class SyncController extends Controller
         // Build the stable content first (drives the ETag).
         $content = [
             'device'   => ['name' => $device->display_name],
+            'settings' => $device->deviceSettings(),
             'alarms'   => $this->alarms($device),
             'program'  => $this->program($device),
             'messages' => $this->messages($device),
@@ -121,8 +122,10 @@ class SyncController extends Controller
 
         return [
             'id'            => $photo->id,
-            // Absolute URL (APP_URL must be the device-reachable host in production).
-            'url'           => asset('storage/'.ltrim($photo->image_path, '/')),
+            // Photos are private (not on the public disk), so the device fetches
+            // them ONLY through this token-gated render endpoint — a guaranteed
+            // exact-size JPEG, ETag-cached. Needs the device's bearer token.
+            'render_url'    => url('api/v1/photos/'.$photo->id.'/render'),
             'caption'       => $photo->caption,
             'scheduled_for' => $scheduledFor ? Carbon::parse($scheduledFor)->format('Y-m-d') : null,
             // Changes when the file is replaced → ESP cache key.

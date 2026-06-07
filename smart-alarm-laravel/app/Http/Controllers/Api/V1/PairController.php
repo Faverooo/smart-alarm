@@ -54,4 +54,35 @@ class PairController extends Controller
             'expires_in'   => Device::PAIRING_TTL_MINUTES * 60,
         ], 201);
     }
+
+    /**
+     * Pairing-screen poll.
+     *
+     * After init() the ESP shows its code and calls this (with its device token)
+     * every few seconds until `paired` flips true — then it leaves the setup
+     * screen and starts syncing. While unclaimed it reports the seconds left
+     * before the pairing window closes so the device can warn the user.
+     */
+    public function status(Request $request): JsonResponse
+    {
+        /** @var Device $device */
+        $device = $request->user();
+
+        $owned = $device->isOwned();
+
+        $expiresIn = null;
+        if (! $owned && $device->paired_at !== null) {
+            $deadline = $device->paired_at->copy()->addMinutes(Device::PAIRING_TTL_MINUTES);
+            $expiresIn = (int) max(0, now()->diffInSeconds($deadline, false));
+        }
+
+        return response()->json([
+            'paired'       => $owned,
+            'alarm_user'   => $device->alarm_user_id !== null,
+            'photo_user'   => $device->photo_user_id !== null,
+            'name'         => $device->display_name,
+            'pairing_code' => $owned ? null : $device->pairing_code,
+            'expires_in'   => $expiresIn,
+        ]);
+    }
 }

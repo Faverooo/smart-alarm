@@ -10,7 +10,6 @@ use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Facades\Storage;
 
 class PhotosRelationManager extends RelationManager
 {
@@ -75,12 +74,18 @@ class PhotosRelationManager extends RelationManager
                         Forms\Components\FileUpload::make('images')
                             ->label($isFixed ? 'Image' : 'Images')
                             ->image()
+                            // Live 4:3 crop selector locked to the 320×240 screen.
+                            ->imageEditor()
+                            ->imageEditorAspectRatios(['4:3'])
+                            ->imageEditorViewportWidth(320)
+                            ->imageEditorViewportHeight(240)
                             ->multiple(! $isFixed)
                             ->maxFiles($this->remainingSlots())
-                            ->disk('public')
+                            ->disk(Photo::DISK)
+                            ->visibility('private')
                             ->directory('photos')
                             ->maxSize(10240)
-                            ->helperText('Auto-resized to 320×240 for the device. '
+                            ->helperText('Shown on a 4:3 (320×240) screen — use the pencil to crop. '
                                 . ($isFixed ? '' : 'Up to ' . $this->remainingSlots() . ' more photo(s).'))
                             ->required(),
                         Forms\Components\TextInput::make('caption')
@@ -214,7 +219,7 @@ class PhotosRelationManager extends RelationManager
             ->get()
             ->reject(fn (Photo $p) => in_array($p->id, $attachedIds))
             ->mapWithKeys(function (Photo $p) {
-                $url = Storage::disk('public')->url($p->image_path);
+                $url = $p->url;
                 $caption = $p->caption ? ' ' . e($p->caption) : ' Photo #' . $p->id;
                 $label = '<img src="' . e($url) . '" '
                     . 'style="height:40px;width:40px;object-fit:cover;border-radius:6px;'

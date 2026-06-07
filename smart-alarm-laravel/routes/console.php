@@ -10,3 +10,6 @@ Artisan::command('inspire', function () {
 
 // Remove devices that registered but were never claimed within the pairing window.
 Schedule::command('devices:prune-unpaired')->everyFifteenMinutes();
+
+// Sweep abandoned uploads (chosen but never saved) and orphaned photo files.
+Schedule::command('photos:prune-files')->daily();
