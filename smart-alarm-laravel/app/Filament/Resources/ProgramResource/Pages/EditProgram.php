@@ -16,4 +16,16 @@ class EditProgram extends EditRecord
             Actions\DeleteAction::make(),
         ];
     }
+
+    // Daily programs are edited entirely through instant-saving controls — the
+    // calendar commits immediately and name/owner auto-save on blur — so the
+    // page-level Save/Cancel buttons only cause confusion. Drop them for daily.
+    protected function getFormActions(): array
+    {
+        if ($this->record->type === 'daily') {
+            return [];
+        }
+
+        return parent::getFormActions();
+    }
 }

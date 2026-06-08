@@ -24,6 +24,9 @@
             .spc-cal .spc-remove { bottom: 0.4rem; right: 0.4rem; height: 2.6rem; width: 2.6rem; }
             .spc-cal .spc-remove svg { height: 1.5rem; width: 1.5rem; }
         }
+        /* "Saved instantly" notice — scoped colors so it works without a theme rebuild. */
+        .spc-cal .spc-note { border: 1px solid rgb(253 230 138); background: rgb(255 251 235); color: rgb(146 64 14); }
+        .dark .spc-cal .spc-note { border-color: rgba(251, 191, 36, 0.25); background: rgba(251, 191, 36, 0.10); color: rgb(253 230 138); }
     </style>
 
     {{-- ─── Toolbar ─────────────────────────────────────────────── --}}
@@ -64,6 +67,15 @@
                 @endforeach
             </div>
         </div>
+    </div>
+
+    {{-- Immediacy notice: the calendar commits straight away (like a relation
+         manager), so the page's Save/Cancel below don't govern it. --}}
+    <div class="spc-note" style="display:flex;align-items:flex-start;gap:0.5rem;border-radius:0.5rem;padding:0.75rem 1rem;margin-bottom:1.25rem;font-size:0.875rem;line-height:1.3rem;">
+        <svg viewBox="0 0 20 20" fill="currentColor" style="flex:none;height:1.25rem;width:1.25rem;margin-top:0.05rem;opacity:0.8;">
+            <path fill-rule="evenodd" d="M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0Zm-7-4a1 1 0 1 1-2 0 1 1 0 0 1 2 0ZM9 9a.75.75 0 0 0 0 1.5h.253a.25.25 0 0 1 .244.304l-.459 2.066A1.75 1.75 0 0 0 10.747 15H11a.75.75 0 0 0 0-1.5h-.253a.25.25 0 0 1-.244-.304l.459-2.066A1.75 1.75 0 0 0 9.253 9H9Z" clip-rule="evenodd"/>
+        </svg>
+        <span>Photos here are saved <strong>the moment you add them</strong> — there’s no Save button to press. To remove a day’s photo, click the <strong>✕</strong> on that day.</span>
     </div>
 
     {{-- ─── Month view ──────────────────────────────────────────── --}}

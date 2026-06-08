@@ -7,6 +7,7 @@ use App\Filament\Resources\ProgramResource\RelationManagers;
 use App\Models\Program;
 use Filament\Forms;
 use Filament\Forms\Form;
+use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
@@ -56,7 +57,11 @@ class ProgramResource extends Resource
                             ->label('Program Name')
                             ->placeholder('Morning Memories')
                             ->maxLength(100)
-                            ->required(),
+                            ->required()
+                            // Daily programs have no page Save button (the calendar
+                            // saves instantly), so persist the name on blur instead.
+                            ->live(onBlur: true)
+                            ->afterStateUpdated(static::autoSaveOnDaily('name')),
 
                         Forms\Components\Select::make('type')
                             ->label('Type')
@@ -105,8 +110,32 @@ class ProgramResource extends Resource
                     ->relationship('user', 'name')
                     ->default(fn () => auth()->id())
                     ->visible(fn () => $user->is_admin)
-                    ->required(),
+                    ->required()
+                    ->live()
+                    ->afterStateUpdated(static::autoSaveOnDaily('user_id')),
             ]);
+    }
+
+    /**
+     * Daily programs drop the page Save button (the calendar commits instantly),
+     * so the remaining editable fields persist themselves on change. Only fires
+     * when editing a daily program and the value actually changed.
+     */
+    protected static function autoSaveOnDaily(string $column): \Closure
+    {
+        return function ($state, ?Program $record, string $operation) use ($column) {
+            if ($operation !== 'edit' || ! $record || $record->type !== 'daily') {
+                return;
+            }
+
+            if ($state === null || $state === '' || $record->{$column} === $state) {
+                return;
+            }
+
+            $record->update([$column => $state]);
+
+            Notification::make()->title('Saved')->success()->send();
+        };
     }
 
     public static function table(Table $table): Table

@@ -49,6 +49,31 @@ class ProgramPageTest extends TestCase
             ->assertStatus(200);
     }
 
+    public function test_daily_program_name_auto_saves_without_a_save_button(): void
+    {
+        [$user, $program] = $this->makePhotoUserAndProgram('daily');
+        $this->actingAs($user);
+
+        // Daily edit page has no Save button; the name persists on change.
+        Livewire::test(EditProgram::class, ['record' => $program->getRouteKey()])
+            ->set('data.name', 'Renamed Daily')
+            ->assertHasNoErrors();
+
+        $this->assertSame('Renamed Daily', $program->fresh()->name);
+    }
+
+    public function test_non_daily_program_name_does_not_auto_save(): void
+    {
+        [$user, $program] = $this->makePhotoUserAndProgram('rotation');
+        $this->actingAs($user);
+
+        // Rotation keeps the normal Save flow — changing the field alone must NOT persist.
+        Livewire::test(EditProgram::class, ['record' => $program->getRouteKey()])
+            ->set('data.name', 'Should Not Persist');
+
+        $this->assertSame('P', $program->fresh()->name);
+    }
+
     public function test_remove_action_detaches_photo(): void
     {
         [$user, $program] = $this->makePhotoUserAndProgram('rotation');
