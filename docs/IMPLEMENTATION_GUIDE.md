@@ -620,11 +620,17 @@ local — compare directly to the ESP's local clock.
   (ETag/304, minimal payload, settings), time, device/status (telemetry),
   device/forget (factory reset), photos/{id}/render (TFT-sized JPEG), firmware/latest
   (OTA), dismiss/read/shown. 17 API tests passing (32 total).
-- **Phase 3 (DOCUMENTED, not yet run):** full Pi 3B+ runbook in §3.0–3.11 — nginx
-  (localhost-only) + PHP-FPM tuned for 1 GB, build assets on dev & rsync, SQLite,
-  Cloudflare Tunnel, scheduler cron for `devices:prune-unpaired`, trust-proxy. Do it
-  on real hardware to validate the `APP_URL`/HTTPS assumptions dev can't.
-- **Phase 4 (NEXT):** ESP32 firmware.
+- **Phase 3 (DEPLOYED 2026-06-08):** live on the Raspberry Pi at
+  **https://smartalarm.faverodev.com** via Cloudflare Tunnel — verified from
+  outside the network (`POST /api/v1/pair/init` → 201 + token/code over HTTPS).
+  Runs PHP 8.3 on the Pi. The §3.0–3.11 runbook reflects what was deployed.
+- **Phase 4 (IN PROGRESS):** ESP32 firmware scaffolded in `firmware/` as a
+  PlatformIO project (ESP32 + ILI9341 320×240). Implements the full §4 flow:
+  WiFiManager provisioning, pair/init + pair/status polling, sync with ETag/304,
+  token-gated photo download + JPEG decode, local-wall-clock alarm matching,
+  buttons (dismiss/snooze/next), telemetry heartbeat, factory reset. NOT yet
+  compiled or flashed (no hardware). Open items: TLS root CA (defaults to
+  insecure), OTA flash step, per-device settings UI in the panel.
 
 ## Test users (seeded)
 `admin@smartalarm.local` (admin), `marco@smartalarm.local` (alarm),
