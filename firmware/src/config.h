@@ -1,0 +1,55 @@
+#pragma once
+// Smart Alarm firmware — all tunables in one place.
+// Pins here are the ones OUR code drives (backlight, buzzer, buttons).
+// The TFT SPI pins live in platformio.ini (TFT_eSPI reads them at compile time).
+
+// ---- Backend -----------------------------------------------------------------
+// The Cloudflare-tunnelled Laravel API. Must be the https origin (no trailing /).
+#define SERVER_URL "https://smartalarm.faverodev.com"
+#define API_BASE   SERVER_URL "/api/v1"
+
+// Cloudflare rotates edge certs, so pinning a leaf is fragile. For a hobby
+// device on your own LAN we skip cert validation by default. Set this to 0 and
+// fill ROOT_CA in config.cpp to validate the chain properly.
+#define USE_INSECURE_TLS 1
+
+// ---- Timekeeping -------------------------------------------------------------
+// Europe/Rome POSIX TZ string (CET/CEST with EU DST rules). The whole system is
+// local wall-clock by design, so the ESP clock must match the server's.
+#define TZ_INFO "CET-1CEST,M3.5.0,M10.5.0/3"
+#define NTP_SERVER_1 "pool.ntp.org"
+#define NTP_SERVER_2 "time.cloudflare.com"
+
+// ---- Poll intervals (ms) -----------------------------------------------------
+#define SYNC_INTERVAL_MS     60000UL    // GET /sync (cheap thanks to ETag/304)
+#define TIME_INTERVAL_MS     300000UL   // GET /time fallback if NTP drifts/fails
+#define STATUS_INTERVAL_MS   300000UL   // POST /device/status heartbeat
+#define FIRMWARE_INTERVAL_MS 21600000UL // GET /firmware/latest (~6h)
+#define PAIR_POLL_MS         5000UL     // GET /pair/status while waiting to be claimed
+
+// ---- Capacities (bounded so parsing can't blow the heap) ---------------------
+#define MAX_ALARMS   16
+#define MAX_PHOTOS   10
+#define MAX_MESSAGES 8
+
+// ---- GPIO we drive ourselves -------------------------------------------------
+#define BL_PIN        21    // TFT backlight (PWM via LEDC for brightness control)
+#define BUZZER_PIN    25    // passive buzzer / speaker (PWM)
+#define BTN_DISMISS   32    // dismiss / stop alarm        (INPUT_PULLUP, active LOW)
+#define BTN_SNOOZE    33    // snooze 9 min (local only)   (INPUT_PULLUP, active LOW)
+#define BTN_NEXT      27    // mark message read / next    (INPUT_PULLUP, active LOW)
+
+// ---- LEDC (PWM) channels -----------------------------------------------------
+#define BL_LEDC_CHANNEL     0
+#define BL_LEDC_FREQ        5000
+#define BL_LEDC_RESOLUTION  8       // 0..255 duty
+#define BUZZER_LEDC_CHANNEL 1
+#define BUZZER_LEDC_RESOLUTION 8
+
+// ---- Behaviour ---------------------------------------------------------------
+#define SNOOZE_MINUTES 9
+#define ROTATION_MIN_INTERVAL 1      // floor for program interval_minutes
+#define WIFI_PORTAL_NAME "SmartAlarm-Setup"
+
+// Firmware version reported to the OTA endpoint and telemetry.
+#define FIRMWARE_VERSION "0.1.0"
