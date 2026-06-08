@@ -16,11 +16,16 @@ namespace DisplayUI {
     // false if decoding failed (caller can keep the previous frame).
     bool drawPhoto(const uint8_t* jpeg, size_t len);
 
-    // Main clock face drawn over (or instead of) the photo: time, date, caption,
-    // next-alarm hint and an optional due message banner.
-    void drawClock(const struct tm& now, const String& timeFormat,
-                   const String& caption, const String& nextAlarm,
-                   const String& dueMessage);
+    // iOS-lock-screen style overlay: the photo stays clear in the background;
+    // the clock/date/caption float over it in the lower-left with an outline
+    // halo for legibility (no solid bars). Only the text regions are repainted
+    // from `jpeg` (pass the same bytes used for the background), so calling this
+    // once a minute leaves the rest of the photo untouched. `jpeg` may be null
+    // (no program) → the text strips fall back to black.
+    void drawClockOverlay(const uint8_t* jpeg, size_t len,
+                          const struct tm& now, const String& timeFormat,
+                          const String& caption, const String& nextAlarm,
+                          const String& dueMessage);
 
     // Full-screen ringing overlay shown while an alarm is firing.
     void showRinging(const String& alarmTime, const String& caption);

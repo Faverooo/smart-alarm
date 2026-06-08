@@ -29,9 +29,19 @@ dismiss 32, snooze 33, next 27 (all `INPUT_PULLUP`, wired to GND, active-low).
 # Install PlatformIO CLI (once):  pip install -U platformio
 cd firmware
 pio run                 # compile
-pio run -t upload       # flash over USB
+pio run -t upload       # flash the firmware over USB
+pio run -t uploadfs     # flash the LittleFS data partition (clock font) — optional
 pio device monitor      # serial @115200
 ```
+
+## Clock face
+The home screen is an iOS-lock-screen style overlay: the photo stays clear and
+full-bleed, with the date + large clock floating lower-left, kept legible by an
+outline halo (no boxes). The hero time uses an anti-aliased **`clock.vlw`** font
+if you install one (see `data/README.md`); otherwise it falls back automatically
+to the built-in 7-segment font. Pixel positions live at the top of
+`drawClockOverlay()` in `src/DisplayUI.cpp` and may want a nudge once you see it
+on your panel.
 
 ## First-run flow
 1. Boots into a WiFi captive portal (`SmartAlarm-Setup`); join it and enter your
@@ -50,9 +60,9 @@ pio device monitor      # serial @115200
 - Pin numbers are guesses for a generic dev board — **verify against your wiring**
   before the first flash (especially backlight/buzzer, to avoid driving the wrong
   pad).
-- The custom `settings` block (brightness/night/volume/12-24h) is consumed but
-  there is **no per-device settings UI in the panel yet** — `/sync` currently
-  serves defaults. Wiring that up is a small backend follow-up.
+- The custom `settings` block (brightness/night/volume/12-24h) is fully wired:
+  editable per-device in the panel ("Display & Sound" section) and served from
+  the device's own DB columns by `/sync` (covered by `test_sync_includes_settings`).
 - OTA (`/firmware/latest`) is **not wired up yet** (the `FIRMWARE_INTERVAL_MS`
   timer exists in config but isn't polled, and there's no `Update.h` flash step);
   add it once you have a `.bin` hosting story.

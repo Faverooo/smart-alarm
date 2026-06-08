@@ -628,9 +628,9 @@ local — compare directly to the ESP's local clock.
   PlatformIO project (ESP32 + ILI9341 320×240). Implements the full §4 flow:
   WiFiManager provisioning, pair/init + pair/status polling, sync with ETag/304,
   token-gated photo download + JPEG decode, local-wall-clock alarm matching,
-  buttons (dismiss/snooze/next), telemetry heartbeat, factory reset. NOT yet
-  compiled or flashed (no hardware). Open items: TLS root CA (defaults to
-  insecure), OTA flash step, per-device settings UI in the panel.
+  buttons (dismiss/snooze/next), telemetry heartbeat, factory reset. Compiles
+  clean under PlatformIO (flash ~88%); NOT yet flashed (no hardware). Open items:
+  TLS root CA (defaults to insecure) and the OTA flash step.
 
 ## Test users (seeded)
 `admin@smartalarm.local` (admin), `marco@smartalarm.local` (alarm),

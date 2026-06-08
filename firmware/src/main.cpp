@@ -27,11 +27,16 @@ static bool      haveData = false;
 static unsigned long lastSync = 0, lastTime = 0, lastStatus = 0,
                      lastPairPoll = 0, lastSecond = 0, lastRotate = 0;
 
-// Photo cache (current frame only — re-fetched when its hash changes).
-static int     photoIndex = 0;
-static String  shownPhotoHash;
-static String  pairingCode, deviceMac;
-static long    pairingExpiresIn = 0;
+// Photo cache (current frame only — re-fetched when its hash changes). The JPEG
+// bytes are kept resident so the clock overlay can repaint behind its text
+// without re-downloading the photo.
+static int      photoIndex = 0;
+static String   shownPhotoHash;
+static uint8_t* photoJpeg = nullptr;
+static size_t   photoJpegLen = 0;
+static int      lastClockMinute = -1;   // force an overlay redraw when != now
+static String   pairingCode, deviceMac;
+static long     pairingExpiresIn = 0;
 
 // Alarm ring state.
 static bool   ringing = false;
@@ -123,10 +128,15 @@ static void renderPhoto(int idx) {
     uint8_t* buf = nullptr; size_t len = 0;
     if (api.fetchPhoto(p.renderUrl, &buf, &len) && buf) {
         if (DisplayUI::drawPhoto(buf, len)) {
+            // Keep the bytes resident for the overlay's per-minute repaint.
+            free(photoJpeg);
+            photoJpeg = buf; photoJpegLen = len;
             shownPhotoHash = p.hash;
+            lastClockMinute = -1;            // force clock redraw over the new photo
             api.photoShown(p.id);            // best-effort bookkeeping
+        } else {
+            free(buf);
         }
-        free(buf);
     }
 }
 
@@ -200,7 +210,9 @@ static void stopRinging(bool snooze) {
     } else if (ringingScheduledDate.length()) {
         api.alarmDismissed(ringingAlarmId);  // one-time → deactivate server-side
     }
-    shownPhotoHash = "";                     // force a repaint of the photo
+    // Repaint the photo + clock from cache (no re-download needed).
+    if (photoJpeg) DisplayUI::drawPhoto(photoJpeg, photoJpegLen);
+    lastClockMinute = -1;
 }
 
 // ---- buttons (active-low, simple debounce) -----------------------------------
@@ -398,11 +410,19 @@ void loop() {
                 }
 
                 if (!ringing) {
-                    renderPhoto(pickPhotoIndex(now));
-                    DisplayUI::drawClock(now, data.settings.timeFormat,
-                        data.program.photos.empty() ? "" :
-                          data.program.photos[max(0, pickPhotoIndex(now))].caption,
-                        nextAlarmLabel(), dueMessageFor(now));
+                    int idx = pickPhotoIndex(now);
+                    renderPhoto(idx);        // full repaint only when the photo changes
+
+                    // Overlay is cheap but repaints a strip of the photo, so only
+                    // redraw it when the displayed minute actually changes.
+                    if (now.tm_min != lastClockMinute) {
+                        lastClockMinute = now.tm_min;
+                        String caption = (idx >= 0 && idx < (int)data.program.photos.size())
+                                       ? data.program.photos[idx].caption : "";
+                        DisplayUI::drawClockOverlay(photoJpeg, photoJpegLen, now,
+                            data.settings.timeFormat, caption,
+                            nextAlarmLabel(), dueMessageFor(now));
+                    }
                 }
             }
         }
