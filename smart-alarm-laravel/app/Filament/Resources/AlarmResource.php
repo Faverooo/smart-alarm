@@ -7,7 +7,10 @@ use App\Models\Alarm;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
+use Filament\Support\Enums\FontWeight;
 use Filament\Tables;
+use Filament\Tables\Columns\Layout\Split;
+use Filament\Tables\Columns\Layout\Stack;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 
@@ -85,6 +88,11 @@ class AlarmResource extends Resource
                             ->schema([
                                 Forms\Components\DatePicker::make('scheduled_date')
                                     ->label('One-time Date')
+                                    // An alarm with neither a date nor recurring days would never fire.
+                                    ->requiredWithout('days_of_week')
+                                    ->validationMessages([
+                                        'required_without' => 'Set a one-time date or pick at least one recurring day.',
+                                    ])
                                     ->helperText('Set a date for a one-time alarm. Leave empty for a recurring alarm.'),
 
                                 Forms\Components\CheckboxList::make('days_of_week')
@@ -113,38 +121,53 @@ class AlarmResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
+            // Responsive layout: a single row on desktop (md+), a stacked card on mobile.
             ->columns([
-                Tables\Columns\TextColumn::make('device.mac_address')
-                    ->label('Device')
-                    ->formatStateUsing(fn ($state, $record) => $record->device->display_name)
-                    ->sortable()
-                    ->searchable(),
-                Tables\Columns\TextColumn::make('time')
-                    ->label('Time')
-                    ->formatStateUsing(fn ($state) => substr((string) $state, 0, 5))
-                    ->sortable(),
-                Tables\Columns\TextColumn::make('scheduled_date')
-                    ->label('One-time Date')
-                    ->date('d/m/Y')
-                    ->placeholder('Recurring')
-                    ->sortable(),
-                Tables\Columns\TextColumn::make('days_of_week')
-                    ->label('Days')
-                    ->formatStateUsing(function ($state) {
-                        if (empty($state)) {
-                            return '—';
-                        }
+                Split::make([
+                    Tables\Columns\IconColumn::make('is_active')
+                        ->label('Active')
+                        ->boolean()
+                        ->grow(false),
+                    Stack::make([
+                        Tables\Columns\TextColumn::make('time')
+                            ->label('Time')
+                            ->formatStateUsing(fn ($state) => substr((string) $state, 0, 5))
+                            ->weight(FontWeight::Bold)
+                            ->size(Tables\Columns\TextColumn\TextColumnSize::Large)
+                            ->sortable(),
+                        Tables\Columns\TextColumn::make('device.mac_address')
+                            ->label('Device')
+                            ->formatStateUsing(fn ($state, $record) => $record->device->display_name)
+                            ->icon('heroicon-m-cpu-chip')
+                            ->color('gray')
+                            ->sortable()
+                            ->searchable(),
+                        Tables\Columns\TextColumn::make('scheduled_date')
+                            ->label('One-time Date')
+                            ->date('d/m/Y')
+                            ->placeholder('Recurring')
+                            ->icon('heroicon-m-calendar-days')
+                            ->color('gray')
+                            ->sortable(),
+                        Tables\Columns\TextColumn::make('days_of_week')
+                            ->label('Days')
+                            // Filament implodes array state with ', ' BEFORE the
+                            // formatter runs, so $state arrives here as the string
+                            // "Monday, Wednesday, Friday" — never array_map over it.
+                            ->formatStateUsing(function ($state) {
+                                $days = is_array($state) ? $state : explode(', ', (string) $state);
 
-                        return implode(', ', array_map(fn ($d) => substr($d, 0, 3), $state));
-                    }),
-                Tables\Columns\IconColumn::make('is_active')
-                    ->label('Active')
-                    ->boolean(),
-                Tables\Columns\TextColumn::make('updated_at')
-                    ->label('Last Updated')
-                    ->since()
-                    ->sortable()
-                    ->toggleable(isToggledHiddenByDefault: true),
+                                return implode(', ', array_map(fn ($d) => substr($d, 0, 3), $days));
+                            })
+                            ->icon('heroicon-m-arrow-path')
+                            ->color('gray'),
+                        Tables\Columns\TextColumn::make('updated_at')
+                            ->label('Last Updated')
+                            ->since()
+                            ->sortable()
+                            ->toggleable(isToggledHiddenByDefault: true),
+                    ]),
+                ])->from('md'),
             ])
             ->defaultSort('time')
             ->filters([

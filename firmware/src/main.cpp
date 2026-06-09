@@ -9,6 +9,7 @@
 #include <WiFi.h>
 #include <WiFiManager.h>
 #include <time.h>
+#include <limits.h>
 
 #include "config.h"
 #include "types.h"
@@ -25,13 +26,16 @@ static bool      haveData = false;
 
 // Timers
 static unsigned long lastSync = 0, lastTime = 0, lastStatus = 0,
-                     lastPairPoll = 0, lastSecond = 0, lastRotate = 0;
+                     lastPairPoll = 0, lastSecond = 0, lastRotate = 0,
+                     lastFwCheck = 0;
 
 // Photo cache (current frame only — re-fetched when its hash changes). The JPEG
 // bytes are kept resident so the clock overlay can repaint behind its text
 // without re-downloading the photo.
 static int      photoIndex = 0;
 static String   shownPhotoHash;
+static String   failedPhotoHash;        // last hash whose download failed
+static unsigned long lastPhotoAttempt = 0;
 static uint8_t* photoJpeg = nullptr;
 static size_t   photoJpegLen = 0;
 static int      lastClockMinute = -1;   // force an overlay redraw when != now
@@ -43,18 +47,22 @@ static bool   ringing = false;
 static String ringingTime, ringingCaption;
 static long   ringingAlarmId = 0;
 static String ringingScheduledDate;
-static String lastFiredKey;        // de-dupe: fire each alarm once per minute
-static unsigned long snoozeUntil = 0;
-static String snoozeKey;
+// De-dupe: each alarm fires at most once per wall-clock minute. A single
+// "last key" isn't enough — two alarms sharing one HH:MM must BOTH ring, and
+// dismissing the second must not let the first ring again.
+static String firedMinute;         // the "YYYY-MM-DDTHH:MM" the list belongs to
+static String firedIds;            // ",id," list of alarms already fired in it
+static bool   snoozePending = false;
+static unsigned long snoozeAt = 0; // when the snoozed alarm re-fires (millis)
 
 static const char* WEEKDAYS[] = {"Sunday","Monday","Tuesday","Wednesday",
                                  "Thursday","Friday","Saturday"};
 
 // ---- helpers -----------------------------------------------------------------
 
-static String macNoColons() {
-    String m = WiFi.macAddress();   // AA:BB:CC:DD:EE:FF
-    return m;
+// Colon-separated, as the server's mac_address validation expects.
+static String deviceMacAddress() {
+    return WiFi.macAddress();       // AA:BB:CC:DD:EE:FF
 }
 
 static bool getLocalTm(struct tm& out) {
@@ -120,11 +128,15 @@ static int pickPhotoIndex(const struct tm& now) {
 }
 
 // Download (if hash changed) and draw the chosen photo as the background.
+// This runs from the 1Hz tick, so failures back off (PHOTO_RETRY_MS) instead
+// of re-attempting a TLS download every second during a network blip.
 static void renderPhoto(int idx) {
     if (idx < 0 || idx >= (int)data.program.photos.size()) return;
     const ProgramPhoto& p = data.program.photos[idx];
     if (p.hash == shownPhotoHash) return;   // already on screen
+    if (p.hash == failedPhotoHash && millis() - lastPhotoAttempt < PHOTO_RETRY_MS) return;
 
+    bool ok = false;
     uint8_t* buf = nullptr; size_t len = 0;
     if (api.fetchPhoto(p.renderUrl, &buf, &len) && buf) {
         if (DisplayUI::drawPhoto(buf, len)) {
@@ -132,12 +144,15 @@ static void renderPhoto(int idx) {
             free(photoJpeg);
             photoJpeg = buf; photoJpegLen = len;
             shownPhotoHash = p.hash;
+            failedPhotoHash = "";
             lastClockMinute = -1;            // force clock redraw over the new photo
             api.photoShown(p.id);            // best-effort bookkeeping
+            ok = true;
         } else {
             free(buf);
         }
     }
+    if (!ok) { failedPhotoHash = p.hash; lastPhotoAttempt = millis(); }
 }
 
 // ---- night mode / brightness -------------------------------------------------
@@ -158,21 +173,62 @@ static void applyBrightness(const struct tm& now) {
 
 // ---- alarms ------------------------------------------------------------------
 
-static String dueMessageFor(const struct tm& now) {
-    // Show the most recent message whose scheduled_at has passed.
+// Index of the message currently on screen: the most recent one whose
+// scheduled_at has passed (messages arrive sorted ascending). -1 if none.
+// BTN_NEXT must mark THIS one read — display and acknowledge must agree.
+static int dueMessageIndex(const struct tm& now) {
     char nowStr[20];
     strftime(nowStr, sizeof(nowStr), "%Y-%m-%dT%H:%M:%S", &now);
-    String best;
-    for (auto& m : data.messages)
-        if (m.scheduledAt.length() && m.scheduledAt <= String(nowStr)) best = m.text;
+    int best = -1;
+    for (size_t i = 0; i < data.messages.size(); i++) {
+        const Message& m = data.messages[i];
+        if (m.scheduledAt.length() && m.scheduledAt <= String(nowStr)) best = (int) i;
+    }
     return best;
 }
 
-static String nextAlarmLabel() {
-    String best;
-    for (auto& a : data.alarms)
-        if (a.time.length() && (best.length() == 0 || a.time < best)) best = a.time;
-    return best;
+static String dueMessageFor(const struct tm& now) {
+    int i = dueMessageIndex(now);
+    return i >= 0 ? data.messages[i].text : String();
+}
+
+// Time label of the alarm that will actually fire soonest from `now`,
+// honouring one-time dates and recurring weekdays. "" when none is upcoming.
+static String nextAlarmLabel(const struct tm& now) {
+    long best = LONG_MAX;
+    String label;
+    int curMin = now.tm_hour * 60 + now.tm_min;
+
+    for (auto& a : data.alarms) {
+        int t = hhmmToMinutes(a.time);
+        if (t < 0) continue;
+        long delta = LONG_MAX;   // minutes from now until this alarm fires
+
+        if (a.scheduledDate.length()) {          // one-time: days until its date
+            struct tm d = {};
+            if (sscanf(a.scheduledDate.c_str(), "%d-%d-%d",
+                       &d.tm_year, &d.tm_mon, &d.tm_mday) != 3) continue;
+            d.tm_year -= 1900; d.tm_mon -= 1; d.tm_hour = 12; d.tm_isdst = -1;
+            struct tm ref = now;
+            ref.tm_hour = 12; ref.tm_min = 0; ref.tm_sec = 0; ref.tm_isdst = -1;
+            long days = (long) lround(difftime(mktime(&d), mktime(&ref)) / 86400.0);
+            if (days < 0 || (days == 0 && t <= curMin)) continue;   // already passed
+            delta = days * 1440L + (t - curMin);
+        } else {                                  // recurring: next listed weekday
+            for (int off = 0; off < 7; off++) {
+                if (off == 0 && t <= curMin) continue;   // today's slot already passed
+                int wd = (now.tm_wday + off) % 7;
+                bool listed = false;
+                for (auto& dn : a.days) if (dn == WEEKDAYS[wd]) { listed = true; break; }
+                if (!listed) continue;
+                delta = off * 1440L + (t - curMin);
+                break;
+            }
+        }
+
+        if (delta < best) { best = delta; label = a.time; }
+    }
+    return label;
 }
 
 // Does this alarm fire at `now` (to the minute)?
@@ -205,8 +261,8 @@ static void stopRinging(bool snooze) {
     DisplayUI::buzzerOff();
     ringing = false;
     if (snooze) {
-        snoozeUntil = millis() + (unsigned long)SNOOZE_MINUTES * 60000UL;
-        snoozeKey   = lastFiredKey;          // don't immediately re-fire same minute
+        snoozePending = true;
+        snoozeAt = millis() + (unsigned long)SNOOZE_MINUTES * 60000UL;
     } else if (ringingScheduledDate.length()) {
         api.alarmDismissed(ringingAlarmId);  // one-time → deactivate server-side
     }
@@ -229,14 +285,15 @@ static void handleButtons() {
         return;
     }
     if (pressed(BTN_NEXT)) {
-        // Mark the current due message read, and advance a rotation program.
+        // Mark the message currently ON SCREEN read (the latest due one — the
+        // same index dueMessageFor shows), and advance a rotation program.
         struct tm now;
         if (getLocalTm(now)) {
-            for (auto& m : data.messages) {
-                char ns[20]; strftime(ns, sizeof(ns), "%Y-%m-%dT%H:%M:%S", &now);
-                if (m.scheduledAt.length() && m.scheduledAt <= String(ns)) {
-                    api.messageRead(m.id); m.scheduledAt = ""; break;
-                }
+            int i = dueMessageIndex(now);
+            if (i >= 0) {
+                api.messageRead(data.messages[i].id);
+                data.messages[i].scheduledAt = "";   // locally no longer due
+                lastClockMinute = -1;                // refresh the overlay now
             }
         }
         if (data.program.type == "rotation") { photoIndex++; shownPhotoHash = ""; }
@@ -250,7 +307,9 @@ static void doSync() {
     SyncResult r = api.sync(data);
     if (r == SyncResult::Updated) {
         haveData = true;
-        shownPhotoHash = "";                 // program may have changed → repaint
+        // No need to clear shownPhotoHash: renderPhoto compares per-photo
+        // hashes, so an unrelated change (message read, settings tweak)
+        // doesn't force a pointless re-download of the same photo.
     } else if (r == SyncResult::Unauthorized) {
         // Token rejected (pairing window expired / device pruned) → re-pair.
         Storage::clearToken();
@@ -269,7 +328,11 @@ static void enterPairing() {
     } else {
         api.setToken(Storage::token());
     }
-    DisplayUI::showPairing(pairingCode, deviceMac, pairingExpiresIn);
+    // No code yet (server unreachable / paired device in an outage): show a
+    // neutral screen instead of a pairing prompt with a blank code. The poll
+    // fills the code in (or flips us to RUNNING) as soon as the server answers.
+    if (pairingCode.length()) DisplayUI::showPairing(pairingCode, deviceMac, pairingExpiresIn);
+    else                      DisplayUI::showBooting("Connecting to server...");
     lastPairPoll = 0;
 }
 
@@ -293,6 +356,20 @@ static void pollPairing() {
         pairingExpiresIn = ps.expiresIn;
         DisplayUI::showPairing(pairingCode, deviceMac, pairingExpiresIn);
     }
+}
+
+// ---- OTA ----------------------------------------------------------------------
+
+static void checkFirmwareUpdate() {
+    String url;
+    if (!api.checkFirmware(url)) return;
+
+    DisplayUI::showBooting("Updating firmware...");
+    api.otaUpdate(url);                  // reboots into the new build on success
+
+    // Still here → the update failed; restore the normal screen and carry on.
+    if (photoJpeg) DisplayUI::drawPhoto(photoJpeg, photoJpegLen);
+    lastClockMinute = -1;
 }
 
 // ---- setup / loop ------------------------------------------------------------
@@ -319,7 +396,7 @@ void setup() {
         delay(3000); ESP.restart();
     }
 
-    deviceMac = macNoColons();
+    deviceMac = deviceMacAddress();
     api.begin();
 
     DisplayUI::showBooting("Syncing clock...");
@@ -334,16 +411,27 @@ void setup() {
         api.setToken(Storage::token());
         PairInfo pi = api.forget();
         if (pi.ok) { pairingCode = pi.pairingCode; pairingExpiresIn = pi.expiresIn; }
-        Storage::setEtag("");
     }
 
-    enterPairing();
-
-    // If we already had a token and it still works, jump straight to RUNNING.
+    // Already paired? Go straight to RUNNING — don't flash the pairing screen.
     if (Storage::hasToken()) {
+        api.setToken(Storage::token());
         PairStatus ps = api.pairStatus();
-        if (ps.ok && ps.paired) { state = State::Running; doSync(); }
+        if (ps.ok && ps.paired) {
+            state = State::Running;
+            DisplayUI::showBooting("Syncing...");
+            doSync();
+        } else {
+            if (ps.unauthorized) Storage::clearToken();   // pruned → fresh pair/init
+            if (ps.ok) { pairingCode = ps.pairingCode; pairingExpiresIn = ps.expiresIn; }
+            enterPairing();
+        }
+    } else {
+        enterPairing();
     }
+
+    // First OTA check one minute after boot, then every FIRMWARE_INTERVAL_MS.
+    lastFwCheck = millis() + 60000UL - FIRMWARE_INTERVAL_MS;
 }
 
 void loop() {
@@ -368,16 +456,23 @@ void loop() {
         lastTime = ms;
         struct tm t; if (!getLocalTm(t)) clockFromServer();
     }
+    if (!ringing && ms - lastFwCheck >= FIRMWARE_INTERVAL_MS) {
+        lastFwCheck = ms;
+        checkFirmwareUpdate();               // never reboots mid-alarm (guarded above)
+    }
 
     handleButtons();
 
-    // Snooze re-fire.
-    if (!ringing && snoozeUntil && ms >= snoozeUntil) {
-        snoozeUntil = 0;
-        // Reconstruct the snoozed alarm from the saved ring state and re-ring it.
-        Alarm a; a.id = ringingAlarmId; a.time = ringingTime;
-        a.scheduledDate = ringingScheduledDate;
-        startRinging(a);
+    // Snooze re-fire. Signed-difference compare so it survives millis() rollover
+    // (~49.7 days) — this device is meant to stay on for months.
+    if (!ringing && snoozePending && (long)(ms - snoozeAt) >= 0) {
+        snoozePending = false;
+        // Re-ring only if the alarm still exists and is active — it may have
+        // been deleted or disabled from the panel during the snooze (/sync
+        // only ships active alarms, so absence here means "don't ring").
+        for (auto& a : data.alarms) {
+            if (a.id == ringingAlarmId) { startRinging(a); break; }
+        }
     }
 
     // Once per second: clock, alarm check, render.
@@ -395,18 +490,18 @@ void loop() {
                     if (ms - lastRotate >= iv) { lastRotate = ms; photoIndex++; shownPhotoHash = ""; }
                 }
 
-                // Alarm matching (de-dupe per minute via a key).
+                // Alarm matching. Skip — don't stop at — alarms that already
+                // fired this minute, so two alarms sharing one HH:MM both ring.
                 char key[24];
                 strftime(key, sizeof(key), "%Y-%m-%dT%H:%M", &now);
+                if (firedMinute != String(key)) { firedMinute = key; firedIds = ""; }
                 for (auto& a : data.alarms) {
-                    if (alarmMatches(a, now)) {
-                        String k = String(a.id) + "@" + key;
-                        if (k != lastFiredKey && k != snoozeKey) {
-                            lastFiredKey = k;
-                            startRinging(a);
-                        }
-                        break;
-                    }
+                    if (!alarmMatches(a, now)) continue;
+                    String tag = "," + String(a.id) + ",";
+                    if (firedIds.indexOf(tag) >= 0) continue;   // already had its turn
+                    firedIds += tag;
+                    startRinging(a);
+                    break;
                 }
 
                 if (!ringing) {
@@ -421,7 +516,7 @@ void loop() {
                                        ? data.program.photos[idx].caption : "";
                         DisplayUI::drawClockOverlay(photoJpeg, photoJpegLen, now,
                             data.settings.timeFormat, caption,
-                            nextAlarmLabel(), dueMessageFor(now));
+                            nextAlarmLabel(now), dueMessageFor(now));
                     }
                 }
             }

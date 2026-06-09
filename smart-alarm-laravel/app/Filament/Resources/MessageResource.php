@@ -7,7 +7,10 @@ use App\Models\Message;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
+use Filament\Support\Enums\FontWeight;
 use Filament\Tables;
+use Filament\Tables\Columns\Layout\Split;
+use Filament\Tables\Columns\Layout\Stack;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 
@@ -91,28 +94,40 @@ class MessageResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
+            // Responsive layout: a single row on desktop (md+), a stacked card on mobile.
             ->columns([
-                Tables\Columns\TextColumn::make('device.mac_address')
-                    ->label('Device')
-                    ->formatStateUsing(fn ($state, $record) => $record->device->display_name)
-                    ->sortable()
-                    ->searchable(),
-                Tables\Columns\TextColumn::make('text_content')
-                    ->label('Message')
-                    ->limit(60)
-                    ->searchable(),
-                Tables\Columns\TextColumn::make('scheduled_at')
-                    ->label('Scheduled At')
-                    ->dateTime('d/m/Y H:i')
-                    ->sortable(),
-                Tables\Columns\IconColumn::make('is_read')
-                    ->label('Read')
-                    ->boolean(),
-                Tables\Columns\TextColumn::make('created_at')
-                    ->label('Created')
-                    ->since()
-                    ->sortable()
-                    ->toggleable(isToggledHiddenByDefault: true),
+                Split::make([
+                    Tables\Columns\IconColumn::make('is_read')
+                        ->label('Read')
+                        ->boolean()
+                        ->grow(false),
+                    Stack::make([
+                        Tables\Columns\TextColumn::make('text_content')
+                            ->label('Message')
+                            ->limit(60)
+                            ->weight(FontWeight::Medium)
+                            ->wrap()
+                            ->searchable(),
+                        Tables\Columns\TextColumn::make('device.mac_address')
+                            ->label('Device')
+                            ->formatStateUsing(fn ($state, $record) => $record->device->display_name)
+                            ->icon('heroicon-m-cpu-chip')
+                            ->color('gray')
+                            ->sortable()
+                            ->searchable(),
+                        Tables\Columns\TextColumn::make('scheduled_at')
+                            ->label('Scheduled At')
+                            ->dateTime('d/m/Y H:i')
+                            ->icon('heroicon-m-clock')
+                            ->color('gray')
+                            ->sortable(),
+                        Tables\Columns\TextColumn::make('created_at')
+                            ->label('Created')
+                            ->since()
+                            ->sortable()
+                            ->toggleable(isToggledHiddenByDefault: true),
+                    ]),
+                ])->from('md'),
             ])
             ->defaultSort('scheduled_at')
             ->filters([

@@ -39,7 +39,7 @@ class ImageController extends Controller
 
         $etag = substr(sha1($photo->image_path.'|'.$photo->updated_at.'|'.$width.'x'.$height), 0, 16);
 
-        if (trim($request->headers->get('If-None-Match', ''), '"') === $etag) {
+        if ($this->ifNoneMatchMatches($request, $etag)) {
             return response('', 304)->setEtag($etag);
         }
 
@@ -47,9 +47,26 @@ class ImageController extends Controller
 
         abort_unless($photo->image_path && $disk->exists($photo->image_path), 404);
 
-        $image = (new ImageManager(new Driver()))->decode($disk->path($photo->image_path));
-        $image->cover($width, $height); // fill the screen, crop the overflow
-        $jpeg = (string) $image->encode(new JpegEncoder(quality: 80));
+        // Serve from the render cache when possible — the server is a Raspberry
+        // Pi, so decode each multi-megapixel source once, not per cache miss.
+        $cachePath = Photo::RENDER_CACHE_DIR."/{$photo->id}-{$width}x{$height}-{$etag}.jpg";
+
+        if ($disk->exists($cachePath)) {
+            $jpeg = $disk->get($cachePath);
+        } else {
+            $image = (new ImageManager(new Driver()))->decode($disk->path($photo->image_path));
+            $image->cover($width, $height); // fill the screen, crop the overflow
+            $jpeg = (string) $image->encode(new JpegEncoder(quality: 80));
+
+            // Drop renders of this photo at this size with older etags (the
+            // file was replaced), then cache the fresh one.
+            foreach ($disk->files(Photo::RENDER_CACHE_DIR) as $file) {
+                if (str_starts_with(basename($file), "{$photo->id}-{$width}x{$height}-")) {
+                    $disk->delete($file);
+                }
+            }
+            $disk->put($cachePath, $jpeg);
+        }
 
         return response($jpeg, 200, [
             'Content-Type'  => 'image/jpeg',

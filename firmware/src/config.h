@@ -4,8 +4,12 @@
 // The TFT SPI pins live in platformio.ini (TFT_eSPI reads them at compile time).
 
 // ---- Backend -----------------------------------------------------------------
-// The Cloudflare-tunnelled Laravel API. Must be the https origin (no trailing /).
+// ⚠ CHANGE ME: your server's https origin (no trailing /). Can also be set
+// without editing this file via a build flag in platformio.ini:
+//   -DSERVER_URL='"https://alarm.example.com"'
+#ifndef SERVER_URL
 #define SERVER_URL "https://smartalarm.faverodev.com"
+#endif
 #define API_BASE   SERVER_URL "/api/v1"
 
 // Cloudflare rotates edge certs, so pinning a leaf is fragile. For a hobby
@@ -14,9 +18,14 @@
 #define USE_INSECURE_TLS 1
 
 // ---- Timekeeping -------------------------------------------------------------
-// Europe/Rome POSIX TZ string (CET/CEST with EU DST rules). The whole system is
-// local wall-clock by design, so the ESP clock must match the server's.
+// ⚠ CHANGE ME (if you're not in Italy): POSIX TZ string for YOUR timezone —
+// it MUST describe the same zone as APP_TIMEZONE in the server's .env, because
+// the whole system runs on local wall-clock time. Find yours here:
+// https://github.com/nayarsystems/posix_tz_db/blob/master/zones.csv
+// Default: Europe/Rome (CET/CEST with EU DST rules).
+#ifndef TZ_INFO
 #define TZ_INFO "CET-1CEST,M3.5.0,M10.5.0/3"
+#endif
 #define NTP_SERVER_1 "pool.ntp.org"
 #define NTP_SERVER_2 "time.cloudflare.com"
 
@@ -26,6 +35,7 @@
 #define STATUS_INTERVAL_MS   300000UL   // POST /device/status heartbeat
 #define FIRMWARE_INTERVAL_MS 21600000UL // GET /firmware/latest (~6h)
 #define PAIR_POLL_MS         5000UL     // GET /pair/status while waiting to be claimed
+#define PHOTO_RETRY_MS       10000UL    // back-off between failed photo downloads
 
 // ---- Capacities (bounded so parsing can't blow the heap) ---------------------
 #define MAX_ALARMS   16

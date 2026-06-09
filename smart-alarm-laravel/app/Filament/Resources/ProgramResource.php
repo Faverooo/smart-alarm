@@ -9,7 +9,10 @@ use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
+use Filament\Support\Enums\FontWeight;
 use Filament\Tables;
+use Filament\Tables\Columns\Layout\Split;
+use Filament\Tables\Columns\Layout\Stack;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 
@@ -141,32 +144,51 @@ class ProgramResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
+            // Responsive layout: a single row on desktop (md+), a stacked card on mobile.
             ->columns([
-                Tables\Columns\TextColumn::make('name')
-                    ->label('Name')
-                    ->searchable()
-                    ->sortable(),
-                Tables\Columns\BadgeColumn::make('type')
-                    ->label('Type')
-                    ->colors([
-                        'primary' => 'fixed',
-                        'success' => 'daily',
-                        'warning' => 'rotation',
+                Split::make([
+                    Stack::make([
+                        Tables\Columns\TextColumn::make('name')
+                            ->label('Name')
+                            ->weight(FontWeight::Bold)
+                            ->searchable()
+                            ->sortable(),
+                        Tables\Columns\TextColumn::make('user.name')
+                            ->label('Owner')
+                            ->icon('heroicon-m-user')
+                            ->color('gray')
+                            ->visible(fn () => auth()->user()->is_admin),
                     ]),
-                Tables\Columns\TextColumn::make('interval_minutes')
-                    ->label('Interval')
-                    ->formatStateUsing(fn ($state) => $state ? "{$state} min" : '—'),
-                Tables\Columns\TextColumn::make('photos_count')
-                    ->label('Photos')
-                    ->counts('photos')
-                    ->badge(),
-                Tables\Columns\TextColumn::make('devices_count')
-                    ->label('Devices')
-                    ->counts('devices')
-                    ->badge(),
-                Tables\Columns\TextColumn::make('user.name')
-                    ->label('Owner')
-                    ->visible(fn () => auth()->user()->is_admin),
+                    Tables\Columns\TextColumn::make('type')
+                        ->label('Type')
+                        ->badge()
+                        ->color(fn (string $state): string => match ($state) {
+                            'fixed'    => 'primary',
+                            'daily'    => 'success',
+                            'rotation' => 'warning',
+                            default    => 'gray',
+                        })
+                        ->grow(false),
+                    Tables\Columns\TextColumn::make('photos_count')
+                        ->label('Photos')
+                        ->counts('photos')
+                        ->badge()
+                        ->icon('heroicon-m-photo')
+                        ->color('gray')
+                        ->grow(false),
+                    Tables\Columns\TextColumn::make('devices_count')
+                        ->label('Devices')
+                        ->counts('devices')
+                        ->badge()
+                        ->icon('heroicon-m-cpu-chip')
+                        ->color('gray')
+                        ->grow(false),
+                    Tables\Columns\TextColumn::make('interval_minutes')
+                        ->label('Interval')
+                        ->formatStateUsing(fn ($state) => $state ? "{$state} min" : '—')
+                        ->color('gray')
+                        ->grow(false),
+                ])->from('md'),
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),

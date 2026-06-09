@@ -8,7 +8,10 @@ use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
+use Filament\Support\Enums\FontWeight;
 use Filament\Tables;
+use Filament\Tables\Columns\Layout\Split;
+use Filament\Tables\Columns\Layout\Stack;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -230,42 +233,57 @@ class DeviceResource extends Resource
         $isAdmin = auth()->user()->is_admin;
 
         return $table
+            // Responsive layout: a single row on desktop (md+), a stacked card on mobile.
             ->columns([
-                Tables\Columns\TextColumn::make('mac_address')
-                    ->label('MAC Address')
-                    ->searchable()
-                    ->copyable()
-                    ->fontFamily('mono')
-                    ->visible($isAdmin),
-                Tables\Columns\IconColumn::make('online')
-                    ->label('Status')
-                    ->getStateUsing(fn (Device $record) => $record->isOnline())
-                    ->boolean()
-                    ->trueIcon('heroicon-m-signal')
-                    ->falseIcon('heroicon-m-signal-slash')
-                    ->trueColor('success')
-                    ->falseColor('gray')
-                    ->tooltip(fn (Device $record) => $record->last_status_at?->diffForHumans() ?? 'Never seen'),
-                Tables\Columns\TextColumn::make('name')
-                    ->label('Name')
-                    ->placeholder('—')
-                    ->searchable(),
-                Tables\Columns\TextColumn::make('alarmUser.name')
-                    ->label('Alarm Manager')
-                    ->placeholder('Not assigned')
-                    ->icon('heroicon-m-bell'),
-                Tables\Columns\TextColumn::make('photoUser.name')
-                    ->label('Photo Manager')
-                    ->placeholder('Not assigned')
-                    ->icon('heroicon-m-photo')
-                    ->visible($isAdmin),
-                Tables\Columns\TextColumn::make('program.name')
-                    ->label('Active Program')
-                    ->placeholder('None'),
-                Tables\Columns\TextColumn::make('pairing_code')
-                    ->label('Pairing Code')
-                    ->placeholder('—')
-                    ->fontFamily('mono'),
+                Split::make([
+                    Tables\Columns\IconColumn::make('online')
+                        ->label('Status')
+                        ->getStateUsing(fn (Device $record) => $record->isOnline())
+                        ->boolean()
+                        ->trueIcon('heroicon-m-signal')
+                        ->falseIcon('heroicon-m-signal-slash')
+                        ->trueColor('success')
+                        ->falseColor('gray')
+                        ->tooltip(fn (Device $record) => $record->last_status_at?->diffForHumans() ?? 'Never seen')
+                        ->grow(false),
+                    Stack::make([
+                        Tables\Columns\TextColumn::make('name')
+                            ->label('Name')
+                            ->placeholder('Unnamed device')
+                            ->weight(FontWeight::Bold)
+                            ->searchable(),
+                        Tables\Columns\TextColumn::make('mac_address')
+                            ->label('MAC Address')
+                            ->searchable()
+                            ->copyable()
+                            ->fontFamily('mono')
+                            ->size(Tables\Columns\TextColumn\TextColumnSize::Small)
+                            ->color('gray')
+                            ->visible($isAdmin),
+                        Tables\Columns\TextColumn::make('alarmUser.name')
+                            ->label('Alarm Manager')
+                            ->placeholder('No alarm manager')
+                            ->icon('heroicon-m-bell')
+                            ->color('gray'),
+                        Tables\Columns\TextColumn::make('photoUser.name')
+                            ->label('Photo Manager')
+                            ->placeholder('No photo manager')
+                            ->icon('heroicon-m-photo')
+                            ->color('gray')
+                            ->visible($isAdmin),
+                        Tables\Columns\TextColumn::make('program.name')
+                            ->label('Active Program')
+                            ->placeholder('No program')
+                            ->icon('heroicon-m-play-circle')
+                            ->color('gray'),
+                        Tables\Columns\TextColumn::make('pairing_code')
+                            ->label('Pairing Code')
+                            ->placeholder('—')
+                            ->prefix('Code: ')
+                            ->fontFamily('mono')
+                            ->color('gray'),
+                    ]),
+                ])->from('md'),
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),

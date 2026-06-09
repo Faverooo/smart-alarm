@@ -6,7 +6,6 @@ use App\Http\Controllers\Controller;
 use App\Models\Device;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
 
 class DeviceController extends Controller
 {
@@ -56,7 +55,7 @@ class DeviceController extends Controller
             'alarm_user_id' => null,
             'photo_user_id' => null,
             'program_id'    => null,
-            'pairing_code'  => strtoupper(Str::random(6)),
+            'pairing_code'  => Device::generatePairingCode(),
             'paired_at'     => now(),
         ])->save();
 

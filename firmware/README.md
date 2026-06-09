@@ -5,8 +5,9 @@ pairs with the Laravel backend, syncs alarms/photos/messages, shows a clock over
 the active program photo, and rings alarms. Built with **PlatformIO**.
 
 It implements the exact API contract in `../docs/IMPLEMENTATION_GUIDE.md` §2 and
-the device flow in §4. All time handling is **local wall-clock (Europe/Rome)** —
-no timezone math on the device, matching the backend's design.
+the device flow in §4. All time handling is **local wall-clock** (Europe/Rome by
+default — set `TZ_INFO` in `config.h` to your zone) — no timezone math on the
+device, matching the backend's design.
 
 ## Layout
 | File | Responsibility |
@@ -14,7 +15,7 @@ no timezone math on the device, matching the backend's design.
 | `platformio.ini` | Board + libs; **TFT_eSPI panel/pins configured here via build flags** |
 | `src/config.h` | Server URL, intervals, the GPIOs we drive (backlight, buzzer, buttons), TZ |
 | `src/types.h` | Structs mirroring the `/sync` payload |
-| `src/Storage.*` | NVS persistence of the device token + last ETag |
+| `src/Storage.*` | NVS persistence of the device token (the sync ETag is RAM-only, on purpose) |
 | `src/ApiClient.*` | All HTTP: pair/init, pair/status, sync (ETag/304), time, status, photo, callbacks |
 | `src/DisplayUI.*` | TFT drawing, JPEG decode, backlight PWM, buzzer |
 | `src/main.cpp` | State machine: Boot → WiFi → Pairing → Running; clock + alarm loop |
@@ -62,9 +63,9 @@ on your panel.
   pad).
 - The custom `settings` block (brightness/night/volume/12-24h) is fully wired:
   editable per-device in the panel ("Display & Sound" section) and served from
-  the device's own DB columns by `/sync` (covered by `test_sync_includes_settings`).
-- OTA (`/firmware/latest`) is **not wired up yet** (the `FIRMWARE_INTERVAL_MS`
-  timer exists in config but isn't polled, and there's no `Update.h` flash step);
-  add it once you have a `.bin` hosting story.
+  the device's own DB columns by `/sync`.
+- **OTA is wired up**: the device polls `/firmware/latest` every 6 h (and a
+  minute after boot) and flashes itself. Publishing flow: see the main README,
+  "Updating the firmware later (OTA)".
 - Rotation/daily caches only the *current* photo's JPEG (re-fetched on change) to
   stay within RAM on a non-PSRAM board.

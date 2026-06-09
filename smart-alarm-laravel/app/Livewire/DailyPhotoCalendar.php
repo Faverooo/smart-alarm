@@ -76,10 +76,15 @@ class DailyPhotoCalendar extends Component implements HasActions, HasForms
         return Carbon::parse($this->cursor)->startOfMonth();
     }
 
+    // Per-request memo for photosByDate() — buildCell() runs once per calendar
+    // cell, so without this a month render fires ~35 identical pivot queries.
+    // Protected, so Livewire never serializes it; reset after pivot mutations.
+    protected ?\Illuminate\Support\Collection $photosByDateMemo = null;
+
     // Photos with a pinned date, keyed by 'Y-m-d'.
     protected function photosByDate()
     {
-        return $this->program->photos()
+        return $this->photosByDateMemo ??= $this->program->photos()
             ->wherePivotNotNull('scheduled_for')
             ->get()
             ->keyBy(fn (Photo $p) => Carbon::parse($p->pivot->scheduled_for)->format('Y-m-d'));
@@ -236,21 +241,21 @@ class DailyPhotoCalendar extends Component implements HasActions, HasForms
                             'is_shown'      => false,
                         ]);
                     }
+                } else {
+                    $photo = Photo::create([
+                        'user_id'    => auth()->id(),
+                        'image_path' => $data['image'],
+                        'caption'    => $data['caption'] ?? null,
+                    ]);
+                    CreatePhoto::resizeForEsp32($photo);
 
-                    return;
+                    $this->program->photos()->attach($photo->id, [
+                        'scheduled_for' => $date,
+                        'is_shown'      => false,
+                    ]);
                 }
 
-                $photo = Photo::create([
-                    'user_id'    => auth()->id(),
-                    'image_path' => $data['image'],
-                    'caption'    => $data['caption'] ?? null,
-                ]);
-                CreatePhoto::resizeForEsp32($photo);
-
-                $this->program->photos()->attach($photo->id, [
-                    'scheduled_for' => $date,
-                    'is_shown'      => false,
-                ]);
+                $this->photosByDateMemo = null;   // pivot changed → re-read on render
             });
     }
 
@@ -273,6 +278,8 @@ class DailyPhotoCalendar extends Component implements HasActions, HasForms
             ->where($relation->getForeignPivotKeyName(), $this->program->getKey())
             ->where('scheduled_for', $date)
             ->delete();
+
+        $this->photosByDateMemo = null;   // pivot changed → re-read on render
     }
 
     public function render()
