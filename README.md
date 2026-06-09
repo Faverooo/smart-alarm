@@ -43,7 +43,7 @@ No app to install on their side, nothing for them to configure.
 | ESP32 DevKit (ESP32-WROOM-32) | any common 30/38-pin dev board | €5 |
 | 3.2" or 2.8" ILI9341 SPI TFT, 320×240 | the common red SPI module | €8–12 |
 | Passive buzzer | 2-pin, PWM driven | €1 |
-| 3 momentary push buttons | dismiss / snooze / next | €1 |
+| 1 momentary push button | snooze / dismiss / mark read | €1 |
 | Breadboard + jumper wires, 5V USB supply | a 3D-printed case is a nice bonus | €3 |
 
 **Server (one of):**
@@ -194,16 +194,16 @@ the login page. Log in with the admin account from Step 1.
 |---|---|---|---|---|
 | VCC | 3V3 | | Buzzer + | GPIO 25 |
 | GND | GND | | Buzzer − | GND |
-| CS  | GPIO 15 | | Button DISMISS | GPIO 32 → GND |
-| RESET | GPIO 4 | | Button SNOOZE | GPIO 33 → GND |
-| DC  | GPIO 2 | | Button NEXT | GPIO 27 → GND |
+| CS  | GPIO 15 | | Button | GPIO 32 → GND |
+| RESET | GPIO 4 | | | |
+| DC  | GPIO 2 | | | |
 | MOSI (SDI) | GPIO 23 | | | |
 | SCK | GPIO 18 | | | |
 | LED (backlight) | GPIO 21 | | | |
 | MISO (SDO) | GPIO 19 | | | |
 
-Buttons need no resistors (internal pull-ups). Different wiring? Change the pins in
-`firmware/platformio.ini` (TFT) and `firmware/src/config.h` (everything else).
+The button needs no resistor (internal pull-up). Different wiring? Change the pins
+in `firmware/platformio.ini` (TFT) and `firmware/src/config.h` (everything else).
 
 ### Flash
 
@@ -250,10 +250,11 @@ That's it. From now on everything is managed from the panel:
 | **Alarms** | One-time (a date) or recurring (weekdays) |
 | **Messages** | Text + when it should appear on the screen |
 
-On the device: **DISMISS** stops a ringing alarm (one-time alarms auto-disable),
-**SNOOZE** = +9 minutes, **NEXT** marks the shown message as read / skips to the
-next rotation photo. Hold **DISMISS while powering on** to factory-reset
-(forgets the pairing, shows a fresh code).
+The single button does everything: while an alarm rings, a **short press snoozes**
+(+9 min) and **holding it for a second stops it** (one-time alarms auto-disable);
+when idle, a short press **marks the on-screen message as read**. Hold it **while
+powering on** to factory-reset (forgets the pairing, shows a fresh code).
+Rotation photos advance on their own, on the interval set in the panel.
 
 ## Updating the firmware later (OTA)
 

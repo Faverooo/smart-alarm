@@ -79,7 +79,7 @@ BOOT ──►│  WiFi   ├───────────►│ PAIRING  �
 - **Uscita d'emergenza**: se `/sync` risponde 401 il token non vale più (device
   cancellato/resettato lato server) → si butta il token e si riavvia: si ricomincia
   dal pairing. Semplice e impossibile da sbagliare.
-- **Reset di fabbrica**: tieni premuto DISMISS all'accensione → `POST /device/forget`
+- **Reset di fabbrica**: tieni premuto il pulsante all'accensione → `POST /device/forget`
   (autenticato dal token stesso: solo chi ha il device in mano può farlo).
 
 ---
@@ -308,24 +308,35 @@ Dettagli che contano:
 
 ---
 
-## 9. I bottoni (e il debounce)
+## 9. Il pulsante (uno solo: pressione breve vs lunga)
 
-Tre bottoni, attivi-bassi con pull-up interno (un capo al GPIO, l'altro a GND):
+UN solo bottone fisico (`BTN_PIN` 32, attivo-basso con pull-up interno: un capo al
+GPIO, l'altro a GND). Le funzioni si distinguono per **stato** e **durata**:
 
-| Bottone | A riposo | Mentre suona |
+| Stato | Pressione breve | Tenuto ≥ `LONG_PRESS_MS` (1 s) |
 |---|---|---|
-| DISMISS (32) | — (al boot: factory reset) | spegne la sveglia |
-| SNOOZE (33) | — | +9 minuti |
-| NEXT (27) | marca letto il messaggio A SCHERMO; foto successiva (rotation) | — |
+| Sveglia che suona | snooze (+9 min) | **spegne** — scatta mentre è ancora premuto |
+| A riposo | marca letto il messaggio a schermo | — |
+| All'accensione | — | factory reset |
 
-Il **debounce** è il minimo indispensabile: lettura LOW → aspetta 25 ms → rileggi
-(i contatti meccanici "rimbalzano" per qualche ms). Poi un `while (pressed(...))`
-aspetta il rilascio, così una pressione lunga non si autorepete.
+Le scelte UX dietro la tabella:
+- **Snooze = il gesto facile** (tocco al volo da assonnati), **dismiss = il gesto
+  deliberato** (devi tenere premuto). E il dismiss scatta *appena* la soglia è
+  raggiunta, senza aspettare il rilascio: "tieni premuto finché smette" funziona
+  d'istinto.
+- **Niente "foto successiva" manuale**: nei programmi rotation le foto avanzano da
+  sole con `interval_minutes` — un'azione in meno da spiegare a chi usa la sveglia.
 
-Dettaglio di correttezza su NEXT: il messaggio mostrato è *l'ultimo* tra quelli
-scaduti (`dueMessageIndex()`), e il bottone marca letto **quello stesso indice**.
-Display e acknowledge devono condividere la stessa funzione di scelta — la prima
-versione usava due criteri diversi e marcava letto un messaggio mai visto.
+L'implementazione (`handleButton()` in `main.cpp`) è una mini macchina a stati su
+tre variabili: `btnDown` (premuto, già debounced), `btnDownAt` (da quando),
+`btnLongFired` (l'azione lunga è già scattata → ignora il rilascio). Il
+**debounce** è il minimo indispensabile: alla prima lettura LOW si aspetta 25 ms e
+si rilegge (i contatti meccanici "rimbalzano" per qualche millisecondo).
+
+Dettaglio di correttezza sul "marca letto": il messaggio mostrato è *l'ultimo* tra
+quelli scaduti (`dueMessageIndex()`), e il bottone marca letto **quello stesso
+indice**. Display e acknowledge devono condividere la stessa funzione di scelta —
+la prima versione usava due criteri diversi e marcava letto un messaggio mai visto.
 
 ---
 

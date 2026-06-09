@@ -175,7 +175,7 @@ static void applyBrightness(const struct tm& now) {
 
 // Index of the message currently on screen: the most recent one whose
 // scheduled_at has passed (messages arrive sorted ascending). -1 if none.
-// BTN_NEXT must mark THIS one read — display and acknowledge must agree.
+// A short idle press must mark THIS one read — display and acknowledge must agree.
 static int dueMessageIndex(const struct tm& now) {
     char nowStr[20];
     strftime(nowStr, sizeof(nowStr), "%Y-%m-%dT%H:%M:%S", &now);
@@ -271,33 +271,54 @@ static void stopRinging(bool snooze) {
     lastClockMinute = -1;
 }
 
-// ---- buttons (active-low, simple debounce) -----------------------------------
+// ---- the single button (active-low, short/long press) -------------------------
+//
+// One physical button does everything, disambiguated by state + hold time:
+//   ringing → short press = snooze; held LONG_PRESS_MS = dismiss (fires while
+//             still held, so "hold until it stops ringing" just works)
+//   idle    → short press (on release) = mark the on-screen message read
+// Debounce: confirm the press 25ms later; ignore sub-25ms "presses" on release.
 
-static bool pressed(int pin) {
-    if (digitalRead(pin) == LOW) { delay(25); return digitalRead(pin) == LOW; }
-    return false;
+static bool          btnDown = false;       // debounced "currently held"
+static unsigned long btnDownAt = 0;
+static bool          btnLongFired = false;  // long-press action already taken
+
+static void shortPressIdle() {
+    // Mark the message currently ON SCREEN read (the latest due one — the same
+    // index dueMessageFor shows, so display and acknowledge always agree).
+    struct tm now;
+    if (!getLocalTm(now)) return;
+    int i = dueMessageIndex(now);
+    if (i >= 0) {
+        api.messageRead(data.messages[i].id);
+        data.messages[i].scheduledAt = "";   // locally no longer due
+        lastClockMinute = -1;                // refresh the overlay now
+    }
 }
 
-static void handleButtons() {
-    if (ringing) {
-        if (pressed(BTN_DISMISS)) { stopRinging(false); while (pressed(BTN_DISMISS)) delay(10); }
-        else if (pressed(BTN_SNOOZE)) { stopRinging(true); while (pressed(BTN_SNOOZE)) delay(10); }
+static void handleButton() {
+    bool down = digitalRead(BTN_PIN) == LOW;
+
+    if (down && !btnDown) {                  // press started → debounce-confirm
+        delay(25);
+        if (digitalRead(BTN_PIN) != LOW) return;
+        btnDown = true; btnLongFired = false; btnDownAt = millis();
         return;
     }
-    if (pressed(BTN_NEXT)) {
-        // Mark the message currently ON SCREEN read (the latest due one — the
-        // same index dueMessageFor shows), and advance a rotation program.
-        struct tm now;
-        if (getLocalTm(now)) {
-            int i = dueMessageIndex(now);
-            if (i >= 0) {
-                api.messageRead(data.messages[i].id);
-                data.messages[i].scheduledAt = "";   // locally no longer due
-                lastClockMinute = -1;                // refresh the overlay now
-            }
+
+    if (down && btnDown) {                   // still held → check the long press
+        if (!btnLongFired && ringing && millis() - btnDownAt >= LONG_PRESS_MS) {
+            btnLongFired = true;
+            stopRinging(false);              // dismiss the moment the hold qualifies
         }
-        if (data.program.type == "rotation") { photoIndex++; shownPhotoHash = ""; }
-        while (pressed(BTN_NEXT)) delay(10);
+        return;
+    }
+
+    if (!down && btnDown) {                  // released
+        btnDown = false;
+        if (btnLongFired) return;            // the hold already did its job
+        if (ringing) stopRinging(true);      // short press while ringing → snooze
+        else         shortPressIdle();
     }
 }
 
@@ -380,12 +401,10 @@ void setup() {
     DisplayUI::begin();
     DisplayUI::showBooting("Starting...");
 
-    pinMode(BTN_DISMISS, INPUT_PULLUP);
-    pinMode(BTN_SNOOZE,  INPUT_PULLUP);
-    pinMode(BTN_NEXT,    INPUT_PULLUP);
+    pinMode(BTN_PIN, INPUT_PULLUP);
 
-    // Factory reset: hold DISMISS during boot.
-    bool resetHeld = digitalRead(BTN_DISMISS) == LOW;
+    // Factory reset: hold the button during boot.
+    bool resetHeld = digitalRead(BTN_PIN) == LOW;
 
     // WiFi provisioning (captive portal on first run / when creds are lost).
     DisplayUI::showWifiPortal(WIFI_PORTAL_NAME);
@@ -461,7 +480,7 @@ void loop() {
         checkFirmwareUpdate();               // never reboots mid-alarm (guarded above)
     }
 
-    handleButtons();
+    handleButton();
 
     // Snooze re-fire. Signed-difference compare so it survives millis() rollover
     // (~49.7 days) — this device is meant to stay on for months.

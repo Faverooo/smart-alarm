@@ -26,8 +26,10 @@ device, matching the backend's design.
 
 ## Wiring (defaults — change in `platformio.ini` / `config.h`)
 **TFT (SPI), in `platformio.ini`:** MISO 19, MOSI 23, SCLK 18, CS 15, DC 2, RST 4.
-**Driven in `config.h`:** backlight `BL_PIN` 21 (PWM), buzzer 25, buttons —
-dismiss 32, snooze 33, next 27 (all `INPUT_PULLUP`, wired to GND, active-low).
+**Driven in `config.h`:** backlight `BL_PIN` 21 (PWM), buzzer 25, and the single
+button `BTN_PIN` 32 (`INPUT_PULLUP`, wired to GND, active-low). Button UX:
+short press = snooze (ringing) / mark message read (idle); hold ~1s = dismiss;
+held at power-on = factory reset.
 
 ## Build & flash
 ```bash
@@ -55,7 +57,7 @@ on your panel.
    **pairing code** on screen.
 3. In the web panel: **Add Device** (photo manager) / **Join as Alarm Manager**,
    entering that code. The device polls `/pair/status`; when claimed it starts.
-4. **Factory reset:** hold the *dismiss* button while powering on → calls
+4. **Factory reset:** hold the button while powering on → calls
    `/device/forget`, gets a fresh code, and re-pairs.
 
 ## Notes / TODO before shipping on real hardware

@@ -45,9 +45,12 @@
 // ---- GPIO we drive ourselves -------------------------------------------------
 #define BL_PIN        21    // TFT backlight (PWM via LEDC for brightness control)
 #define BUZZER_PIN    25    // passive buzzer / speaker (PWM)
-#define BTN_DISMISS   32    // dismiss / stop alarm        (INPUT_PULLUP, active LOW)
-#define BTN_SNOOZE    33    // snooze 9 min (local only)   (INPUT_PULLUP, active LOW)
-#define BTN_NEXT      27    // mark message read / next    (INPUT_PULLUP, active LOW)
+// The one and only button (INPUT_PULLUP, wired to GND, active LOW):
+//   ringing → short press = snooze, hold LONG_PRESS_MS = dismiss
+//   idle    → short press = mark the on-screen message as read
+//   boot    → held during power-on = factory reset
+// (rotation photos advance on their own via interval_minutes — no manual "next")
+#define BTN_PIN       32
 
 // ---- LEDC (PWM) channels -----------------------------------------------------
 #define BL_LEDC_CHANNEL     0
@@ -58,6 +61,7 @@
 
 // ---- Behaviour ---------------------------------------------------------------
 #define SNOOZE_MINUTES 9
+#define LONG_PRESS_MS  1000  // hold this long while ringing to dismiss (vs snooze)
 #define ROTATION_MIN_INTERVAL 1      // floor for program interval_minutes
 #define WIFI_PORTAL_NAME "SmartAlarm-Setup"
 

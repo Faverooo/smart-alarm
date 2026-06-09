@@ -201,8 +201,8 @@ void showRinging(const String& alarmTime, const String& caption) {
     tft.drawString(alarmTime, tft.width() / 2, 90, 7);
     if (caption.length())
         tft.drawString(caption, tft.width() / 2, 150, 4);
-    tft.drawString("press DISMISS to stop", tft.width() / 2, 200, 2);
-    tft.drawString("SNOOZE = +9 min", tft.width() / 2, 222, 2);
+    tft.drawString("hold button = stop", tft.width() / 2, 200, 2);
+    tft.drawString("press = snooze 9 min", tft.width() / 2, 222, 2);
 }
 
 } // namespace DisplayUI
