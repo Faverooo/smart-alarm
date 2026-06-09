@@ -13,6 +13,11 @@ class Photo extends Model
     // token-gated /api/v1/photos/{id}/render endpoint.
     public const DISK = 'local';
 
+    // Device-sized JPEG renders cached by ImageController, keyed photo+size+etag.
+    // PrunePhotoFiles ignores this directory; entries are cleaned on re-render
+    // and when the photo is deleted.
+    public const RENDER_CACHE_DIR = 'render-cache';
+
     protected $fillable = [
         'user_id',
         'image_path',
@@ -22,10 +27,18 @@ class Photo extends Model
     // Keep the disk in lock-step with the records: never leave a file with no row.
     protected static function booted(): void
     {
-        // Deleting a photo deletes its file.
+        // Deleting a photo deletes its file and any cached device renders.
         static::deleted(function (Photo $photo) {
+            $disk = Storage::disk(self::DISK);
+
             if ($photo->image_path) {
-                Storage::disk(self::DISK)->delete($photo->image_path);
+                $disk->delete($photo->image_path);
+            }
+
+            foreach ($disk->files(self::RENDER_CACHE_DIR) as $file) {
+                if (str_starts_with(basename($file), $photo->id.'-')) {
+                    $disk->delete($file);
+                }
             }
         });
 

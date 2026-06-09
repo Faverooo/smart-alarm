@@ -4,6 +4,7 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
+#include <HTTPUpdate.h>
 #include <ArduinoJson.h>
 
 // One TLS client reused across requests (HTTPS setup is expensive on ESP32).
@@ -118,8 +119,7 @@ SyncResult ApiClient::sync(SyncData& out) {
     HTTPClient http;
     if (!beginRequest(http, String(API_BASE) + "/sync")) return SyncResult::Error;
 
-    String stored = Storage::etag();
-    if (stored.length()) http.addHeader("If-None-Match", stored);
+    if (_etag.length()) http.addHeader("If-None-Match", _etag);
 
     const char* collect[] = {"ETag"};
     http.collectHeaders(collect, 1);
@@ -186,8 +186,8 @@ SyncResult ApiClient::sync(SyncData& out) {
         out.messages.push_back(msg);
     }
 
-    // Persist the new ETag so the next poll can 304.
-    if (http.hasHeader("ETag")) Storage::setEtag(http.header("ETag"));
+    // Remember the new ETag (RAM only) so the next poll can 304.
+    if (http.hasHeader("ETag")) _etag = http.header("ETag");
     http.end();
     return SyncResult::Updated;
 }
@@ -210,6 +210,41 @@ bool ApiClient::fetchTime(String& serverTimeOut, String& tzOut) {
 
 // ---- photo download ----------------------------------------------------------
 
+// Write-only Stream that grows a heap buffer. Letting HTTPClient::writeToStream
+// fill it means chunked transfer-encoding (proxies like Cloudflare may re-chunk,
+// dropping Content-Length) is decoded for us — reading the raw stream wouldn't be.
+class JpegBuffer : public Stream {
+public:
+    static const size_t CAP = 200 * 1024;   // sanity cap
+    uint8_t* buf = nullptr;
+    size_t   len = 0, alloc = 0;
+    bool     failed = false;
+
+    ~JpegBuffer() { free(buf); }
+
+    uint8_t* release() { uint8_t* b = buf; buf = nullptr; return b; }
+
+    size_t write(const uint8_t* data, size_t n) override {
+        if (failed) return n;                // swallow the rest, flag stays set
+        if (len + n > alloc) {
+            size_t next = alloc ? alloc * 2 : 32 * 1024;
+            while (next < len + n) next *= 2;
+            if (next > CAP) next = CAP;                       // clamp, don't overshoot
+            if (len + n > next) { failed = true; return n; }  // body exceeds the cap
+            uint8_t* bigger = (uint8_t*) realloc(buf, next);
+            if (!bigger) { failed = true; return n; }
+            buf = bigger; alloc = next;
+        }
+        memcpy(buf + len, data, n);
+        len += n;
+        return n;
+    }
+    size_t write(uint8_t c) override { return write(&c, 1); }
+    int available() override { return 0; }
+    int read() override  { return -1; }
+    int peek() override  { return -1; }
+};
+
 bool ApiClient::fetchPhoto(const String& renderUrl, uint8_t** buf, size_t* len) {
     *buf = nullptr; *len = 0;
     HTTPClient http;
@@ -219,30 +254,47 @@ bool ApiClient::fetchPhoto(const String& renderUrl, uint8_t** buf, size_t* len) 
     int code = http.GET();
     if (code != 200) { http.end(); return false; }
 
-    int size = http.getSize();
-    if (size <= 0 || size > 200 * 1024) { http.end(); return false; } // sanity cap
+    int declared = http.getSize();           // -1 when chunked
+    if (declared == 0 || declared > (int) JpegBuffer::CAP) { http.end(); return false; }
 
-    uint8_t* mem = (uint8_t*) malloc(size);
-    if (!mem) { http.end(); return false; }
+    JpegBuffer body;
+    int written = http.writeToStream(&body); // handles identity AND chunked
+    http.end();
 
-    WiFiClient* stream = http.getStreamPtr();
-    int read = 0;
-    unsigned long start = millis();
-    while (read < size && millis() - start < 10000) {
-        size_t avail = stream->available();
-        if (avail) {
-            int n = stream->readBytes(mem + read, min((size_t)(size - read), avail));
-            read += n;
-            start = millis();
-        } else {
-            delay(1);
+    bool ok = !body.failed && written > 0 && body.len == (size_t) written
+              && (declared < 0 || body.len == (size_t) declared);
+    if (!ok) return false;
+
+    *len = body.len;
+    *buf = body.release();                   // caller owns + frees
+    return true;
+}
+
+// ---- OTA -----------------------------------------------------------------------
+
+bool ApiClient::checkFirmware(String& urlOut) {
+    urlOut = "";
+    HTTPClient http;
+    if (!beginRequest(http, String(API_BASE) + "/firmware/latest?current=" FIRMWARE_VERSION))
+        return false;
+
+    bool available = false;
+    if (http.GET() == 200) {
+        JsonDocument doc;
+        if (!deserializeJson(doc, http.getStream())) {
+            available = doc["update_available"] | false;
+            urlOut    = String((const char*)(doc["url"] | ""));
         }
     }
     http.end();
+    return available && urlOut.length() > 0;
+}
 
-    if (read != size) { free(mem); return false; }
-    *buf = mem; *len = size;
-    return true;
+void ApiClient::otaUpdate(const String& url) {
+    // On success the ESP reboots into the new firmware; on failure we return
+    // and the caller carries on with the running build.
+    httpUpdate.rebootOnUpdate(true);
+    httpUpdate.update(tls, url);
 }
 
 // ---- telemetry & interactions ------------------------------------------------
@@ -264,24 +316,20 @@ bool ApiClient::postStatus() {
     return code == 200;
 }
 
-static bool simplePost(ApiClient*, const String& url, const String& token) {
+bool ApiClient::simplePost(const String& url) {
     HTTPClient http;
-    WiFiClient* /*unused*/ _ = nullptr; (void)_;
-    if (!http.begin(tls, url)) return false;
-    http.setTimeout(8000);
-    http.addHeader("Accept", "application/json");
-    if (token.length()) http.addHeader("Authorization", "Bearer " + token);
+    if (!beginRequest(http, url)) return false;
     int code = http.POST("");
     http.end();
     return code == 200;
 }
 
 bool ApiClient::alarmDismissed(long id) {
-    return simplePost(this, String(API_BASE) + "/alarms/" + id + "/dismissed", _token);
+    return simplePost(String(API_BASE) + "/alarms/" + id + "/dismissed");
 }
 bool ApiClient::messageRead(long id) {
-    return simplePost(this, String(API_BASE) + "/messages/" + id + "/read", _token);
+    return simplePost(String(API_BASE) + "/messages/" + id + "/read");
 }
 bool ApiClient::photoShown(long id) {
-    return simplePost(this, String(API_BASE) + "/programs/photos/" + id + "/shown", _token);
+    return simplePost(String(API_BASE) + "/programs/photos/" + id + "/shown");
 }

@@ -7,7 +7,10 @@ use App\Models\Photo;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
+use Filament\Support\Enums\FontWeight;
 use Filament\Tables;
+use Filament\Tables\Columns\Layout\Split;
+use Filament\Tables\Columns\Layout\Stack;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 
@@ -86,26 +89,40 @@ class PhotoResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
+            // Responsive layout: a single row on desktop (md+), a stacked card on mobile.
             ->columns([
-                Tables\Columns\ViewColumn::make('image_path')
-                    ->label('Preview')
-                    ->view('tables.columns.photo-lightbox'),
-                Tables\Columns\TextColumn::make('caption')
-                    ->label('Caption')
-                    ->placeholder('—')
-                    ->searchable()
-                    ->limit(50),
-                Tables\Columns\TextColumn::make('programs_count')
-                    ->label('Programs')
-                    ->counts('programs')
-                    ->badge(),
-                Tables\Columns\TextColumn::make('user.name')
-                    ->label('Owner')
-                    ->visible(fn () => auth()->user()->is_admin),
-                Tables\Columns\TextColumn::make('created_at')
-                    ->label('Uploaded')
-                    ->since()
-                    ->sortable(),
+                Split::make([
+                    Tables\Columns\ViewColumn::make('image_path')
+                        ->label('Preview')
+                        ->view('tables.columns.photo-lightbox')
+                        ->grow(false),
+                    Stack::make([
+                        Tables\Columns\TextColumn::make('caption')
+                            ->label('Caption')
+                            ->placeholder('No caption')
+                            ->weight(FontWeight::Medium)
+                            ->wrap()
+                            ->searchable()
+                            ->limit(50),
+                        Tables\Columns\TextColumn::make('programs_count')
+                            ->label('Programs')
+                            ->counts('programs')
+                            ->badge()
+                            ->icon('heroicon-m-play-circle')
+                            ->color('gray'),
+                        Tables\Columns\TextColumn::make('user.name')
+                            ->label('Owner')
+                            ->icon('heroicon-m-user')
+                            ->color('gray')
+                            ->visible(fn () => auth()->user()->is_admin),
+                        Tables\Columns\TextColumn::make('created_at')
+                            ->label('Uploaded')
+                            ->since()
+                            ->icon('heroicon-m-clock')
+                            ->color('gray')
+                            ->sortable(),
+                    ]),
+                ])->from('md'),
             ])
             ->defaultSort('created_at', 'desc')
             ->actions([

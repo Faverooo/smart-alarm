@@ -6,7 +6,6 @@ use App\Http\Controllers\Controller;
 use App\Models\Device;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
 
 class PairController extends Controller
 {
@@ -39,7 +38,7 @@ class PairController extends Controller
 
         // New device, or an unowned one re-registering (reboot / expired window).
         $device ??= new Device(['mac_address' => $mac]);
-        $device->pairing_code = strtoupper(Str::random(6));
+        $device->pairing_code = Device::generatePairingCode();
         $device->paired_at = now();
         $device->save();
 

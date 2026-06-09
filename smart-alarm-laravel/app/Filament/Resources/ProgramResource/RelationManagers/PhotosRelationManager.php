@@ -7,7 +7,10 @@ use App\Models\Photo;
 use Filament\Forms;
 use Filament\Notifications\Notification;
 use Filament\Resources\RelationManagers\RelationManager;
+use Filament\Support\Enums\FontWeight;
 use Filament\Tables;
+use Filament\Tables\Columns\Layout\Split;
+use Filament\Tables\Columns\Layout\Stack;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Model;
 
@@ -42,19 +45,28 @@ class PhotosRelationManager extends RelationManager
         $isDaily = $program->type === 'daily';
 
         return $table
+            // Responsive layout: a single row on desktop (md+), a stacked card on mobile.
             ->columns([
-                Tables\Columns\ViewColumn::make('image_path')
-                    ->label('Preview')
-                    ->view('tables.columns.photo-lightbox'),
-                Tables\Columns\TextColumn::make('caption')
-                    ->label('Caption')
-                    ->placeholder('No caption')
-                    ->wrap(),
-                Tables\Columns\TextColumn::make('pivot.scheduled_for')
-                    ->label('Day')
-                    ->date('d/m/Y')
-                    ->placeholder('Any day')
-                    ->visible($isDaily),
+                Split::make([
+                    Tables\Columns\ViewColumn::make('image_path')
+                        ->label('Preview')
+                        ->view('tables.columns.photo-lightbox')
+                        ->grow(false),
+                    Stack::make([
+                        Tables\Columns\TextColumn::make('caption')
+                            ->label('Caption')
+                            ->placeholder('No caption')
+                            ->weight(FontWeight::Medium)
+                            ->wrap(),
+                        Tables\Columns\TextColumn::make('pivot.scheduled_for')
+                            ->label('Day')
+                            ->date('d/m/Y')
+                            ->placeholder('Any day')
+                            ->icon('heroicon-m-calendar-days')
+                            ->color('gray')
+                            ->visible($isDaily),
+                    ]),
+                ])->from('md'),
             ])
             ->emptyStateHeading($isFixed ? 'No photo set yet' : 'No photos yet')
             ->emptyStateDescription(

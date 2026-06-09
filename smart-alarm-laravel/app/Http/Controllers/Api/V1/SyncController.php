@@ -11,6 +11,11 @@ use Illuminate\Support\Carbon;
 
 class SyncController extends Controller
 {
+    // Mirror the firmware's parse caps (firmware/src/config.h MAX_ALARMS /
+    // MAX_MESSAGES) so we never ship items the device would drop anyway.
+    private const MAX_ALARMS = 16;
+    private const MAX_MESSAGES = 8;
+
     /**
      * Everything the device needs, trimmed to the minimum:
      *  - only ACTIVE alarms, minimal fields
@@ -39,7 +44,7 @@ class SyncController extends Controller
         $device->forceFill(['last_synced_at' => now()])->saveQuietly();
 
         // Not modified since the device last fetched → nothing to download.
-        if (trim($request->headers->get('If-None-Match', ''), '"') === $revision) {
+        if ($this->ifNoneMatchMatches($request, $revision)) {
             return response('', 304)->setEtag($revision);
         }
 
@@ -58,6 +63,7 @@ class SyncController extends Controller
         return $device->alarms()
             ->where('is_active', true)
             ->orderBy('time')
+            ->limit(self::MAX_ALARMS)
             ->get(['id', 'time', 'scheduled_date', 'days_of_week', 'is_active'])
             ->map(fn ($a) => [
                 'id'             => $a->id,
@@ -105,6 +111,7 @@ class SyncController extends Controller
             ->where('is_read', false)
             ->where('scheduled_at', '<=', now()->addDay())
             ->orderBy('scheduled_at')
+            ->limit(self::MAX_MESSAGES)
             ->get(['id', 'text_content', 'scheduled_at'])
             ->map(fn ($m) => [
                 'id'           => $m->id,

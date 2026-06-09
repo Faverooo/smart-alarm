@@ -33,7 +33,7 @@ class Device extends Model
             if ($bothFilled) {
                 $device->pairing_code = null;
             } elseif ($device->isOwned()) {
-                $device->pairing_code ??= strtoupper(Str::random(6));
+                $device->pairing_code ??= static::generatePairingCode();
             }
         });
     }
@@ -87,12 +87,26 @@ class Device extends Model
         ];
     }
 
+    // A pairing code no other device is currently showing. Codes are only 6
+    // chars, so the claim-by-code flow must never find two devices sharing one.
+    public static function generatePairingCode(): string
+    {
+        do {
+            $code = strtoupper(Str::random(6));
+        } while (static::where('pairing_code', $code)->exists());
+
+        return $code;
+    }
+
     // Recent heartbeat (status or sync) → the panel shows a green "online" dot.
+    // Use the FRESHEST of the two signals: the status heartbeat cadence equals
+    // the online window, so judging by last_status_at alone would flap offline
+    // between heartbeats even while the device syncs every minute.
     public function isOnline(): bool
     {
-        $last = $this->last_status_at ?? $this->last_synced_at;
+        $seen = array_filter([$this->last_status_at, $this->last_synced_at]);
 
-        return $last !== null && $last->gt(now()->subMinutes(self::ONLINE_WINDOW_MINUTES));
+        return $seen !== [] && max($seen)->gt(now()->subMinutes(self::ONLINE_WINDOW_MINUTES));
     }
 
     // A user (alarm or photo manager) is linked to this device.

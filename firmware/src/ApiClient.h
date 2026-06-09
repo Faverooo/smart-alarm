@@ -26,7 +26,10 @@ struct PairStatus {
 class ApiClient {
 public:
     void begin();                       // configure the TLS client once
-    void setToken(const String& t)      { _token = t; }
+    void setToken(const String& t) {
+        if (t != _token) _etag = "";    // new identity → old cached payload is moot
+        _token = t;
+    }
 
     // --- pairing ---
     PairInfo   pairInit(const String& mac);
@@ -34,12 +37,19 @@ public:
     PairInfo   forget();                // device-initiated factory reset
 
     // --- data ---
-    SyncResult sync(SyncData& out);     // honours stored ETag → 304
+    // Honours the in-RAM ETag → 304. The ETag is RAM-only on purpose: after a
+    // reboot the payload is gone, so the first sync must always be a full 200.
+    SyncResult sync(SyncData& out);
     bool       fetchTime(String& serverTimeOut, String& tzOut);
 
     // --- photo: downloads JPEG bytes (token-gated render_url) into a heap buf.
     //     Caller owns *buf and must free() it. Returns false on any failure.
+    //     Handles both Content-Length and chunked responses (proxies re-chunk).
     bool       fetchPhoto(const String& renderUrl, uint8_t** buf, size_t* len);
+
+    // --- OTA ---
+    bool checkFirmware(String& urlOut); // true + url when an update is published
+    void otaUpdate(const String& url);  // flashes + reboots on success; returns on failure
 
     // --- telemetry & interaction callbacks ---
     bool postStatus();
@@ -49,5 +59,7 @@ public:
 
 private:
     String _token;
+    String _etag;                       // last /sync ETag we hold a payload for
     bool   beginRequest(class HTTPClient& http, const String& url);
+    bool   simplePost(const String& url);
 };
