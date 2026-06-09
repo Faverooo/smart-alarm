@@ -10,4 +10,5 @@ Useful pointers:
 
 - API contract & architecture: [`../docs/IMPLEMENTATION_GUIDE.md`](../docs/IMPLEMENTATION_GUIDE.md)
 - A guided tour of this codebase (in Italian): [`../docs/COME_FUNZIONA.md`](../docs/COME_FUNZIONA.md)
+- The firmware-side guide (in Italian): [`../docs/COME_FUNZIONA_FIRMWARE.md`](../docs/COME_FUNZIONA_FIRMWARE.md)
 - Run the test suite: `php artisan test`

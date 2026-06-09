@@ -67,17 +67,18 @@ the device refuses plain HTTP.
 Works the same on a Raspberry Pi (Raspberry Pi OS / Debian 12) or an Ubuntu/Debian VPS.
 
 ```bash
-# 1. PHP 8.2+, composer, git
+# 1. PHP 8.2+, composer, git, node (node builds the panel theme once)
 sudo apt update
 sudo apt install -y php php-cli php-fpm php-sqlite3 php-gd php-xml php-curl \
-                    php-mbstring php-zip composer git
+                    php-mbstring php-zip composer git nodejs npm
 
 # 2. Get the code
 git clone https://github.com/Faverooo/smart-alarm.git
 cd smart-alarm/smart-alarm-laravel
 
-# 3. Install dependencies
+# 3. Install dependencies and build the panel theme
 composer install --no-dev
+npm install && npm run build
 
 # 4. Configure
 cp .env.example .env
@@ -298,7 +299,9 @@ Use a new filename for every version, and never reuse a version number.
 ```
 smart-alarm-laravel/   The web panel + API (Laravel 11 + Filament 3, SQLite)
 firmware/              ESP32 firmware (PlatformIO, Arduino framework)
-docs/                  Design docs: API contract, architecture, a Filament walkthrough (🇮🇹)
+docs/                  IMPLEMENTATION_GUIDE.md (API contract) + two in-depth
+                       code walkthroughs in Italian: COME_FUNZIONA.md (backend)
+                       and COME_FUNZIONA_FIRMWARE.md (firmware)
 ```
 
 Tests: `cd smart-alarm-laravel && php artisan test`.

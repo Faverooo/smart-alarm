@@ -9,6 +9,10 @@ the device flow in §4. All time handling is **local wall-clock** (Europe/Rome b
 default — set `TZ_INFO` in `config.h` to your zone) — no timezone math on the
 device, matching the backend's design.
 
+> 🇮🇹 For an in-depth, didactic walkthrough of this firmware (state machine,
+> ETag design, memory strategy, alarm engine), see
+> [`../docs/COME_FUNZIONA_FIRMWARE.md`](../docs/COME_FUNZIONA_FIRMWARE.md).
+
 ## Layout
 | File | Responsibility |
 |---|---|
