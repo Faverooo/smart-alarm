@@ -373,9 +373,11 @@ static void pollPairing() {
             doSync();
             return;
         }
+        bool codeChanged = ps.pairingCode.length() && ps.pairingCode != pairingCode;
         if (ps.pairingCode.length()) pairingCode = ps.pairingCode;
         pairingExpiresIn = ps.expiresIn;
-        DisplayUI::showPairing(pairingCode, deviceMac, pairingExpiresIn);
+        // Only redraw when the code changes to avoid the fillScreen flicker every poll.
+        if (codeChanged) DisplayUI::showPairing(pairingCode, deviceMac, pairingExpiresIn);
     }
 }
 
