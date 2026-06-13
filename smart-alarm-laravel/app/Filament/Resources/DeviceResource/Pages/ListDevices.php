@@ -32,7 +32,7 @@ class ListDevices extends ListRecords
                 ->form([
                     Forms\Components\TextInput::make('pairing_code')
                         ->label('Pairing Code')
-                        ->placeholder('ABCD12')
+                        ->placeholder('123456')
                         ->required()
                         ->maxLength(6),
                     Forms\Components\TextInput::make('name')
@@ -61,7 +61,7 @@ class ListDevices extends ListRecords
                 ->form([
                     Forms\Components\TextInput::make('pairing_code')
                         ->label('Pairing Code')
-                        ->placeholder('ABCD12')
+                        ->placeholder('123456')
                         ->maxLength(6)
                         ->required(),
                 ])

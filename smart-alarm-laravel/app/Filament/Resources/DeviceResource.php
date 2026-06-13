@@ -24,12 +24,11 @@ class DeviceResource extends Resource
     protected static ?string $navigationGroup = 'Device';
     protected static ?int $navigationSort = 0;
 
-    // Admins and photo managers can see devices
+    // All authenticated users can see the Devices page (empty list + "Add Device"
+    // button for new users). getEloquentQuery() handles per-user filtering.
     public static function canViewAny(): bool
     {
-        $user = auth()->user();
-
-        return $user->is_admin || $user->isPhotoManager();
+        return auth()->check();
     }
 
     public static function shouldRegisterNavigation(): bool
