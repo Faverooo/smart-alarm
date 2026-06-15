@@ -32,7 +32,7 @@ void ApiClient::begin() {
 bool ApiClient::beginRequest(HTTPClient& http, const String& url) {
     if (WiFi.status() != WL_CONNECTED) return false;
     if (!http.begin(tls, url)) return false;
-    http.setTimeout(8000);
+    http.setTimeout(15000);
     http.setReuse(false);
     http.addHeader("Accept", "application/json");
     if (_token.length()) http.addHeader("Authorization", "Bearer " + _token);
@@ -45,14 +45,21 @@ PairInfo ApiClient::pairInit(const String& mac) {
     PairInfo r;
     HTTPClient http;
     if (!http.begin(tls, String(API_BASE) + "/pair/init")) return r;
-    http.setTimeout(8000);
+    http.setTimeout(15000);
+    http.setReuse(false);
     http.addHeader("Accept", "application/json");
     http.addHeader("Content-Type", "application/x-www-form-urlencoded");
 
     int code = http.POST("mac_address=" + mac);
+    Serial.printf("[pairInit] HTTP %d\n", code);
     if (code == 201 || code == 200) {
+        String body = http.getString();      // buffer the whole body (robust vs chunked)
+        Serial.printf("[pairInit] body: %s\n", body.c_str());
         JsonDocument doc;
-        if (!deserializeJson(doc, http.getStream())) {
+        DeserializationError err = deserializeJson(doc, body);
+        if (err) {
+            Serial.printf("[pairInit] JSON error: %s\n", err.c_str());
+        } else {
             String token = doc["device_token"] | "";
             if (token.length()) {
                 Storage::setToken(token);
@@ -61,8 +68,14 @@ PairInfo ApiClient::pairInit(const String& mac) {
                 r.pairingCode = String((const char*)(doc["pairing_code"] | ""));
                 r.name        = String((const char*)(doc["name"] | ""));
                 r.expiresIn   = doc["expires_in"] | 0L;
+            } else {
+                Serial.println("[pairInit] empty device_token in response");
             }
         }
+    } else if (code == 409) {
+        r.alreadyOwned = true;
+    } else {
+        Serial.printf("[pairInit] body: %s\n", http.getString().c_str());
     }
     http.end();
     return r;
@@ -74,10 +87,15 @@ PairStatus ApiClient::pairStatus() {
     if (!beginRequest(http, String(API_BASE) + "/pair/status")) return r;
 
     int code = http.GET();
+    Serial.printf("[pairStatus] HTTP %d\n", code);
     if (code == 401) { r.unauthorized = true; }
     else if (code == 200) {
+        String body = http.getString();
         JsonDocument doc;
-        if (!deserializeJson(doc, http.getStream())) {
+        DeserializationError err = deserializeJson(doc, body);
+        if (err) {
+            Serial.printf("[pairStatus] JSON error: %s body: %s\n", err.c_str(), body.c_str());
+        } else {
             r.ok          = true;
             r.paired      = doc["paired"] | false;
             r.name        = String((const char*)(doc["name"] | ""));
@@ -96,8 +114,9 @@ PairInfo ApiClient::forget() {
 
     int code = http.POST("");
     if (code == 200 || code == 201) {
+        String body = http.getString();
         JsonDocument doc;
-        if (!deserializeJson(doc, http.getStream())) {
+        if (!deserializeJson(doc, body)) {
             String token = doc["device_token"] | "";
             if (token.length()) {
                 Storage::setToken(token);
@@ -130,8 +149,9 @@ SyncResult ApiClient::sync(SyncData& out) {
     if (code == 401) { http.end(); return SyncResult::Unauthorized; }
     if (code != 200) { http.end(); return SyncResult::Error; }
 
+    String body = http.getString();
     JsonDocument doc;
-    DeserializationError err = deserializeJson(doc, http.getStream());
+    DeserializationError err = deserializeJson(doc, body);
     if (err) { http.end(); return SyncResult::Error; }
 
     out = SyncData{};  // reset
@@ -197,8 +217,9 @@ bool ApiClient::fetchTime(String& serverTimeOut, String& tzOut) {
     if (!beginRequest(http, String(API_BASE) + "/time")) return false;
     bool ok = false;
     if (http.GET() == 200) {
+        String body = http.getString();
         JsonDocument doc;
-        if (!deserializeJson(doc, http.getStream())) {
+        if (!deserializeJson(doc, body)) {
             serverTimeOut = String((const char*)(doc["server_time"] | ""));
             tzOut         = String((const char*)(doc["timezone"] | ""));
             ok = serverTimeOut.length() > 0;
@@ -280,8 +301,9 @@ bool ApiClient::checkFirmware(String& urlOut) {
 
     bool available = false;
     if (http.GET() == 200) {
+        String body = http.getString();
         JsonDocument doc;
-        if (!deserializeJson(doc, http.getStream())) {
+        if (!deserializeJson(doc, body)) {
             available = doc["update_available"] | false;
             urlOut    = String((const char*)(doc["url"] | ""));
         }

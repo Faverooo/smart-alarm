@@ -346,12 +346,10 @@ static void enterPairing() {
     if (!Storage::hasToken()) {
         PairInfo pi = api.pairInit(deviceMac);
         if (pi.ok) { pairingCode = pi.pairingCode; pairingExpiresIn = pi.expiresIn; }
+        else if (pi.alreadyOwned) { DisplayUI::showBooting("Device owned - remove from panel"); return; }
     } else {
         api.setToken(Storage::token());
     }
-    // No code yet (server unreachable / paired device in an outage): show a
-    // neutral screen instead of a pairing prompt with a blank code. The poll
-    // fills the code in (or flips us to RUNNING) as soon as the server answers.
     if (pairingCode.length()) DisplayUI::showPairing(pairingCode, deviceMac, pairingExpiresIn);
     else                      DisplayUI::showBooting("Connecting to server...");
     lastPairPoll = 0;
@@ -362,8 +360,15 @@ static void pollPairing() {
     if (ps.unauthorized) {                   // window expired → fresh code
         Storage::clearToken();
         PairInfo pi = api.pairInit(deviceMac);
-        if (pi.ok) { pairingCode = pi.pairingCode; pairingExpiresIn = pi.expiresIn; }
-        DisplayUI::showPairing(pairingCode, deviceMac, pairingExpiresIn);
+        if (pi.ok) {
+            pairingCode = pi.pairingCode;
+            pairingExpiresIn = pi.expiresIn;
+            DisplayUI::showPairing(pairingCode, deviceMac, pairingExpiresIn);
+        } else if (pi.alreadyOwned) {
+            DisplayUI::showBooting("Device owned - remove from panel");
+        } else {
+            DisplayUI::showBooting("Connecting to server...");
+        }
         return;
     }
     if (ps.ok) {

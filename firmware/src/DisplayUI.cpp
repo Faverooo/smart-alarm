@@ -90,7 +90,7 @@ void showPairing(const String& code, const String& mac, long secondsLeft) {
     tft.setTextColor(TFT_WHITE, TFT_BLACK);
     tft.drawString("Enter this code in the app:", tft.width() / 2, 90, 2);
     tft.setTextColor(TFT_GREENYELLOW, TFT_BLACK);
-    tft.drawString(code, tft.width() / 2, 140, 7);   // big 7-seg style
+    tft.drawString(code, tft.width() / 2, 140, 4);
 
     tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
     tft.drawString(mac, tft.width() / 2, 195, 2);
@@ -123,10 +123,12 @@ static void drawHalo(const String& s, int x, int y, uint8_t font,
 
 // Hero clock string with the same outline-halo treatment. Uses the loaded VLW
 // smooth font when available (drawn transparent so the photo shows through),
-// else the built-in 7-seg font 7. Halo radius `r` keeps it readable over photos.
+// else the built-in font 6 — clean 48px sans-serif numerals (0-9 : a p m), a
+// far more modern look than the old 7-seg font 7. Halo radius `r` keeps it
+// readable over photos.
 static void drawHeroTime(const String& s, int x, int y,
                          uint8_t datum, uint16_t fill, int r) {
-    if (!clockFontAvailable) { drawHalo(s, x, y, 7, datum, fill, r); return; }
+    if (!clockFontAvailable) { drawHalo(s, x, y, 6, datum, fill, r); return; }
 
     tft.loadFont(CLOCK_FONT, LittleFS);    // smooth font ignores font-number args
     tft.setTextDatum(datum);
@@ -163,18 +165,18 @@ void drawClockOverlay(const uint8_t* jpeg, size_t len,
 
     char dbuf[40];
     strftime(dbuf, sizeof(dbuf), "%A %e %b", &now);   // e.g. "Monday  9 Jun"
-    drawHalo(dbuf, 18, 112, 4, TL_DATUM, TFT_WHITE, 1);
+    drawHalo(dbuf, 18, 140, 4, TL_DATUM, TFT_WHITE, 1);
 
     char tbuf[8];
     bool h12 = (timeFormat == "12");
     int hh = now.tm_hour;
     if (h12) { hh %= 12; if (hh == 0) hh = 12; }
     snprintf(tbuf, sizeof(tbuf), h12 ? "%d:%02d" : "%02d:%02d", hh, now.tm_min);
-    // Hero clock — VLW smooth font if installed, else 7-seg. iOS-lock-screen feel.
-    drawHeroTime(tbuf, 14, 138, TL_DATUM, TFT_WHITE, 2);
+    // Hero clock — VLW smooth font if installed, else font 6. iOS-lock-screen feel.
+    drawHeroTime(tbuf, 16, 164, TL_DATUM, TFT_WHITE, 2);
 
     if (h12)  // small AM/PM under the time
-        drawHalo(now.tm_hour < 12 ? "AM" : "PM", 16, 216, 2, TL_DATUM, TFT_WHITE, 1);
+        drawHalo(now.tm_hour < 12 ? "AM" : "PM", 18, 220, 2, TL_DATUM, TFT_WHITE, 1);
 
     if (caption.length())
         drawHalo(caption, 18, H - 6, 2, BL_DATUM, TFT_WHITE, 1);

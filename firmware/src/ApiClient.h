@@ -9,6 +9,7 @@ enum class SyncResult { Updated, NotModified, Unauthorized, Error };
 
 struct PairInfo {
     bool   ok = false;
+    bool   alreadyOwned = false;  // server returned 409: device claimed, needs "forget" first
     String pairingCode;
     String name;
     long   expiresIn = 0;
