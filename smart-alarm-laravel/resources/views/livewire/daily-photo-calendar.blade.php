@@ -16,14 +16,6 @@
         .spc-cal .spc-week { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; }
         @media (min-width: 640px) { .spc-cal .spc-week { grid-template-columns: repeat(7, minmax(0, 1fr)); } }
         @media (max-width: 639px) { .spc-cal .spc-num { font-size: 1rem; } }
-        /* Remove-photo button: comfortably tappable, bigger on touch/mobile. */
-        .spc-cal .spc-remove { bottom: 0.375rem; right: 0.375rem; height: 2rem; width: 2rem; background: rgba(2, 6, 23, 0.6); backdrop-filter: blur(2px); }
-        .spc-cal .spc-remove:hover { background: #dc2626; }
-        .spc-cal .spc-remove svg { height: 1.2rem; width: 1.2rem; }
-        @media (max-width: 639px) {
-            .spc-cal .spc-remove { bottom: 0.4rem; right: 0.4rem; height: 2.6rem; width: 2.6rem; }
-            .spc-cal .spc-remove svg { height: 1.5rem; width: 1.5rem; }
-        }
         /* "Saved instantly" notice — scoped colors so it works without a theme rebuild. */
         .spc-cal .spc-note { border: 1px solid rgb(253 230 138); background: rgb(255 251 235); color: rgb(146 64 14); }
         .dark .spc-cal .spc-note { border-color: rgba(251, 191, 36, 0.25); background: rgba(251, 191, 36, 0.10); color: rgb(253 230 138); }
@@ -110,9 +102,10 @@
         Tap a day to upload or attach a photo. The device shows that day's photo for the whole day.
     </p>
 
-    {{-- Teleport the action modals to <body> so their <form> isn't nested inside
-         the Filament page form (which would push "Save changes" out of the form). --}}
-    <template x-teleport="body">
-        <x-filament-actions::modals />
-    </template>
+    {{-- Filament v5 renders action modals via a `wire:partial`; wrapping it in a
+         manual <template x-teleport> detaches that partial from Livewire's morph
+         tree, so the modal mounts server-side (200) but never appears. Render it
+         inline exactly as stock Filament pages do — the modal handles its own
+         layering, so the page form is unaffected. --}}
+    <x-filament-actions::modals />
 </div>

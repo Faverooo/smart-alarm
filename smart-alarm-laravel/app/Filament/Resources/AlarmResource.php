@@ -55,6 +55,7 @@ class AlarmResource extends Resource
         $user = auth()->user();
 
         return $schema
+            ->columns(1)
             ->schema([
                 Schemas\Components\Section::make('Device')
                     ->schema([

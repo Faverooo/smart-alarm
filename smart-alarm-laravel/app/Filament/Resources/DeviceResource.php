@@ -71,11 +71,13 @@ class DeviceResource extends Resource
     {
         $isAdmin = auth()->user()->is_admin;
 
-        return $schema->schema(
-            $isAdmin
-                ? static::adminSchema()
-                : static::userSchema()
-        );
+        return $schema
+            ->columns(1)
+            ->schema(
+                $isAdmin
+                    ? static::adminSchema()
+                    : static::userSchema()
+            );
     }
 
     private static function adminSchema(): array

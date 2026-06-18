@@ -55,6 +55,7 @@ class ProgramResource extends Resource
         $user = auth()->user();
 
         return $schema
+            ->columns(1)
             ->schema([
                 Schemas\Components\Section::make('Program Details')
                     ->schema([
