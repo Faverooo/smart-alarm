@@ -4,8 +4,11 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\DeviceResource\Pages;
 use App\Models\Device;
+use Filament\Actions;
 use Filament\Forms;
-use Filament\Forms\Form;
+use Filament\Schemas;
+use Filament\Schemas\Schema;
+use Filament\Support\Enums\TextSize;
 use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Support\Enums\FontWeight;
@@ -20,8 +23,8 @@ class DeviceResource extends Resource
 {
     protected static ?string $model = Device::class;
 
-    protected static ?string $navigationIcon = 'heroicon-o-cpu-chip';
-    protected static ?string $navigationGroup = 'Device';
+    protected static \BackedEnum|string|null $navigationIcon = 'heroicon-o-cpu-chip';
+    protected static \UnitEnum|string|null $navigationGroup = 'Device';
     protected static ?int $navigationSort = 0;
 
     // All authenticated users can see the Devices page (empty list + "Add Device"
@@ -64,11 +67,11 @@ class DeviceResource extends Resource
     }
 
     // ── Admin form (full control) ──────────────────────────────────────────────
-    public static function form(Form $form): Form
+    public static function form(Schema $schema): Schema
     {
         $isAdmin = auth()->user()->is_admin;
 
-        return $form->schema(
+        return $schema->schema(
             $isAdmin
                 ? static::adminSchema()
                 : static::userSchema()
@@ -78,7 +81,7 @@ class DeviceResource extends Resource
     private static function adminSchema(): array
     {
         return [
-            Forms\Components\Section::make('Device Identity')
+            Schemas\Components\Section::make('Device Identity')
                 ->schema([
                     Forms\Components\TextInput::make('mac_address')
                         ->label('MAC Address')
@@ -95,7 +98,7 @@ class DeviceResource extends Resource
                 ])
                 ->columns(3),
 
-            Forms\Components\Section::make('Two-Key Assignment')
+            Schemas\Components\Section::make('Two-Key Assignment')
                 ->schema([
                     Forms\Components\Select::make('alarm_user_id')
                         ->label('Alarm Manager')
@@ -110,7 +113,7 @@ class DeviceResource extends Resource
                 ])
                 ->columns(2),
 
-            Forms\Components\Section::make('Active Program')
+            Schemas\Components\Section::make('Active Program')
                 ->schema([
                     Forms\Components\Select::make('program_id')
                         ->label('Program')
@@ -125,9 +128,9 @@ class DeviceResource extends Resource
     }
 
     // Display & sound config pushed to the device through /sync.
-    private static function settingsSection(): Forms\Components\Section
+    private static function settingsSection(): Schemas\Components\Section
     {
-        return Forms\Components\Section::make('Display & Sound')
+        return Schemas\Components\Section::make('Display & Sound')
             ->description('Pushed to the device on its next sync.')
             ->schema([
                 Forms\Components\TextInput::make('brightness')
@@ -147,9 +150,9 @@ class DeviceResource extends Resource
     }
 
     // Read-only diagnostics reported by the device (POST /device/status).
-    private static function telemetrySection(): Forms\Components\Section
+    private static function telemetrySection(): Schemas\Components\Section
     {
-        return Forms\Components\Section::make('Device Status')
+        return Schemas\Components\Section::make('Device Status')
             ->schema([
                 Forms\Components\Placeholder::make('online_state')
                     ->label('Connection')
@@ -178,7 +181,7 @@ class DeviceResource extends Resource
     private static function userSchema(): array
     {
         return [
-            Forms\Components\Section::make('Device')
+            Schemas\Components\Section::make('Device')
                 ->schema([
                     Forms\Components\TextInput::make('name')
                         ->label('Device Name')
@@ -190,7 +193,7 @@ class DeviceResource extends Resource
                 ])
                 ->columns(2),
 
-            Forms\Components\Section::make('Pairing Code')
+            Schemas\Components\Section::make('Pairing Code')
                 ->description('Share this code with the person who will manage alarms on this device.')
                 ->schema([
                     Forms\Components\TextInput::make('pairing_code')
@@ -201,14 +204,14 @@ class DeviceResource extends Resource
                         ->helperText('The alarm manager enters this code to join. It disappears once both managers are set; removing the alarm manager generates a fresh one.'),
                 ]),
 
-            Forms\Components\Section::make('Alarm Manager')
+            Schemas\Components\Section::make('Alarm Manager')
                 ->schema([
                     Forms\Components\Placeholder::make('alarm_manager_name')
                         ->label('Assigned alarm manager')
                         ->content(fn ($record) => $record?->alarmUser?->name ?? 'Nobody yet — share the pairing code above.'),
                 ]),
 
-            Forms\Components\Section::make('Active Program')
+            Schemas\Components\Section::make('Active Program')
                 ->schema([
                     Forms\Components\Select::make('program_id')
                         ->label('Program')
@@ -256,7 +259,7 @@ class DeviceResource extends Resource
                             ->searchable()
                             ->copyable()
                             ->fontFamily('mono')
-                            ->size(Tables\Columns\TextColumn\TextColumnSize::Small)
+                            ->size(TextSize::Small)
                             ->color('gray')
                             ->visible($isAdmin),
                         Tables\Columns\TextColumn::make('alarmUser.name')
@@ -284,11 +287,11 @@ class DeviceResource extends Resource
                     ]),
                 ])->from('md'),
             ])
-            ->actions([
-                Tables\Actions\EditAction::make(),
+            ->recordActions([
+                Actions\EditAction::make(),
 
                 // Photo manager: claim the empty alarm-manager slot for themselves
-                Tables\Actions\Action::make('becomeAlarmManager')
+                Actions\Action::make('becomeAlarmManager')
                     ->label('Become Alarm Manager')
                     ->icon('heroicon-o-user-plus')
                     ->color('success')
@@ -308,7 +311,7 @@ class DeviceResource extends Resource
                     }),
 
                 // Photo manager: clear whoever currently manages alarms
-                Tables\Actions\Action::make('removeAlarmManager')
+                Actions\Action::make('removeAlarmManager')
                     ->label('Remove Alarm Manager')
                     ->icon('heroicon-o-user-minus')
                     ->color('warning')
@@ -328,7 +331,7 @@ class DeviceResource extends Resource
                     }),
 
                 // Non-admins: leave the device (nullify their role)
-                Tables\Actions\Action::make('forget')
+                Actions\Action::make('forget')
                     ->label('Forget Device')
                     ->icon('heroicon-o-arrow-left-on-rectangle')
                     ->color('danger')
@@ -357,12 +360,12 @@ class DeviceResource extends Resource
                     })
                     ->visible(fn () => ! auth()->user()->is_admin),
 
-                Tables\Actions\DeleteAction::make()
+                Actions\DeleteAction::make()
                     ->visible($isAdmin),
             ])
-            ->bulkActions(
+            ->toolbarActions(
                 $isAdmin
-                    ? [Tables\Actions\BulkActionGroup::make([Tables\Actions\DeleteBulkAction::make()])]
+                    ? [Actions\BulkActionGroup::make([Actions\DeleteBulkAction::make()])]
                     : []
             );
     }

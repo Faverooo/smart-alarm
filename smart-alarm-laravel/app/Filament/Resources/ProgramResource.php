@@ -5,8 +5,10 @@ namespace App\Filament\Resources;
 use App\Filament\Resources\ProgramResource\Pages;
 use App\Filament\Resources\ProgramResource\RelationManagers;
 use App\Models\Program;
+use Filament\Actions;
 use Filament\Forms;
-use Filament\Forms\Form;
+use Filament\Schemas;
+use Filament\Schemas\Schema;
 use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Support\Enums\FontWeight;
@@ -20,8 +22,8 @@ class ProgramResource extends Resource
 {
     protected static ?string $model = Program::class;
 
-    protected static ?string $navigationIcon = 'heroicon-o-play-circle';
-    protected static ?string $navigationGroup = 'Media & Messages';
+    protected static \BackedEnum|string|null $navigationIcon = 'heroicon-o-play-circle';
+    protected static \UnitEnum|string|null $navigationGroup = 'Media & Messages';
     protected static ?int $navigationSort = 2;
 
     // Visible to admins and photo managers
@@ -48,13 +50,13 @@ class ProgramResource extends Resource
         return $query;
     }
 
-    public static function form(Form $form): Form
+    public static function form(Schema $schema): Schema
     {
         $user = auth()->user();
 
-        return $form
+        return $schema
             ->schema([
-                Forms\Components\Section::make('Program Details')
+                Schemas\Components\Section::make('Program Details')
                     ->schema([
                         Forms\Components\TextInput::make('name')
                             ->label('Program Name')
@@ -89,7 +91,7 @@ class ProgramResource extends Resource
                             ->numeric()
                             ->minValue(1)
                             ->placeholder('30')
-                            ->visible(fn (Forms\Get $get) => $get('type') === 'rotation')
+                            ->visible(fn (Schemas\Components\Utilities\Get $get) => $get('type') === 'rotation')
                             ->requiredIf('type', 'rotation'),
                     ]),
 
@@ -97,11 +99,11 @@ class ProgramResource extends Resource
                 // The calendar's action modals are teleported to <body> in its blade so their
                 // <form> doesn't nest inside this page form (which would push "Save changes"
                 // out of the form and stop it saving).
-                Forms\Components\Section::make('Daily Calendar')
+                Schemas\Components\Section::make('Daily Calendar')
                     ->description('Click a day to set the photo shown on that date. Click again to replace it.')
-                    ->visible(fn (string $operation, Forms\Get $get) => $operation === 'edit' && $get('type') === 'daily')
+                    ->visible(fn (string $operation, Schemas\Components\Utilities\Get $get) => $operation === 'edit' && $get('type') === 'daily')
                     ->schema([
-                        Forms\Components\Livewire::make(
+                        Schemas\Components\Livewire::make(
                             \App\Livewire\DailyPhotoCalendar::class,
                             fn ($record) => ['program' => $record],
                         ),
@@ -190,13 +192,13 @@ class ProgramResource extends Resource
                         ->grow(false),
                 ])->from('md'),
             ])
-            ->actions([
-                Tables\Actions\EditAction::make(),
-                Tables\Actions\DeleteAction::make(),
+            ->recordActions([
+                Actions\EditAction::make(),
+                Actions\DeleteAction::make(),
             ])
-            ->bulkActions([
-                Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
+            ->toolbarActions([
+                Actions\BulkActionGroup::make([
+                    Actions\DeleteBulkAction::make(),
                 ]),
             ]);
     }

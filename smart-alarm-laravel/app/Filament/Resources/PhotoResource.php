@@ -4,8 +4,10 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\PhotoResource\Pages;
 use App\Models\Photo;
+use Filament\Actions;
 use Filament\Forms;
-use Filament\Forms\Form;
+use Filament\Schemas;
+use Filament\Schemas\Schema;
 use Filament\Resources\Resource;
 use Filament\Support\Enums\FontWeight;
 use Filament\Tables;
@@ -18,8 +20,8 @@ class PhotoResource extends Resource
 {
     protected static ?string $model = Photo::class;
 
-    protected static ?string $navigationIcon = 'heroicon-o-photo';
-    protected static ?string $navigationGroup = 'Media & Messages';
+    protected static \BackedEnum|string|null $navigationIcon = 'heroicon-o-photo';
+    protected static \UnitEnum|string|null $navigationGroup = 'Media & Messages';
     protected static ?int $navigationSort = 1;
 
     // Visible to admins and photo managers
@@ -46,13 +48,13 @@ class PhotoResource extends Resource
         return $query;
     }
 
-    public static function form(Form $form): Form
+    public static function form(Schema $schema): Schema
     {
         $user = auth()->user();
 
-        return $form
+        return $schema
             ->schema([
-                Forms\Components\Section::make('Photo')
+                Schemas\Components\Section::make('Photo')
                     ->schema([
                         Forms\Components\FileUpload::make('image_path')
                             ->label('Image')
@@ -125,13 +127,13 @@ class PhotoResource extends Resource
                 ])->from('md'),
             ])
             ->defaultSort('created_at', 'desc')
-            ->actions([
-                Tables\Actions\EditAction::make(),
-                Tables\Actions\DeleteAction::make(),
+            ->recordActions([
+                Actions\EditAction::make(),
+                Actions\DeleteAction::make(),
             ])
-            ->bulkActions([
-                Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
+            ->toolbarActions([
+                Actions\BulkActionGroup::make([
+                    Actions\DeleteBulkAction::make(),
                 ]),
             ]);
     }

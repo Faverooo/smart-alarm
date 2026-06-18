@@ -4,6 +4,7 @@ namespace App\Filament\Resources\ProgramResource\RelationManagers;
 
 use App\Filament\Resources\PhotoResource\Pages\CreatePhoto;
 use App\Models\Photo;
+use Filament\Actions;
 use Filament\Forms;
 use Filament\Notifications\Notification;
 use Filament\Resources\RelationManagers\RelationManager;
@@ -76,7 +77,7 @@ class PhotosRelationManager extends RelationManager
             )
             ->headerActions([
                 // Upload one or more new photos straight into this program
-                Tables\Actions\Action::make('uploadPhotos')
+                Actions\Action::make('uploadPhotos')
                     ->label($isFixed ? 'Set Photo' : 'Upload Photos')
                     ->icon('heroicon-o-arrow-up-tray')
                     ->color('success')
@@ -130,7 +131,7 @@ class PhotosRelationManager extends RelationManager
                     }),
 
                 // Attach a photo the user already uploaded elsewhere — shown with previews
-                Tables\Actions\Action::make('attachExisting')
+                Actions\Action::make('attachExisting')
                     ->label('Attach Existing')
                     ->icon('heroicon-o-link')
                     ->visible(fn () => $this->remainingSlots() > 0 && count($this->attachableOptions()) > 0)
@@ -163,9 +164,9 @@ class PhotosRelationManager extends RelationManager
                         }
                     }),
             ])
-            ->actions([
+            ->recordActions([
                 // Edit a photo's caption (and, for daily programs, the day it shows)
-                Tables\Actions\Action::make('editPhoto')
+                Actions\Action::make('editPhoto')
                     ->label('Edit')
                     ->icon('heroicon-o-pencil')
                     ->button()
@@ -198,7 +199,7 @@ class PhotosRelationManager extends RelationManager
 
                 // Remove the photo from this program (custom name avoids the built-in
                 // DetachAction "detach" collision, which made the button disappear)
-                Tables\Actions\Action::make('removePhoto')
+                Actions\Action::make('removePhoto')
                     ->label('Remove')
                     ->icon('heroicon-o-trash')
                     ->color('danger')

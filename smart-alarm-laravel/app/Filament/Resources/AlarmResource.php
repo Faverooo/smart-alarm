@@ -4,8 +4,11 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\AlarmResource\Pages;
 use App\Models\Alarm;
+use Filament\Actions;
 use Filament\Forms;
-use Filament\Forms\Form;
+use Filament\Schemas;
+use Filament\Schemas\Schema;
+use Filament\Support\Enums\TextSize;
 use Filament\Resources\Resource;
 use Filament\Support\Enums\FontWeight;
 use Filament\Tables;
@@ -18,8 +21,8 @@ class AlarmResource extends Resource
 {
     protected static ?string $model = Alarm::class;
 
-    protected static ?string $navigationIcon = 'heroicon-o-bell';
-    protected static ?string $navigationGroup = 'Alarm Management';
+    protected static \BackedEnum|string|null$navigationIcon = 'heroicon-o-bell';
+    protected static \UnitEnum|string|null $navigationGroup = 'Alarm Management';
     protected static ?int $navigationSort = 1;
 
     // Visible to admins and users who are the alarm manager on at least one device
@@ -47,13 +50,13 @@ class AlarmResource extends Resource
         return $query;
     }
 
-    public static function form(Form $form): Form
+    public static function form(Schema $schema): Schema
     {
         $user = auth()->user();
 
-        return $form
+        return $schema
             ->schema([
-                Forms\Components\Section::make('Device')
+                Schemas\Components\Section::make('Device')
                     ->schema([
                         Forms\Components\Select::make('device_id')
                             ->label('Device')
@@ -76,7 +79,7 @@ class AlarmResource extends Resource
                             ->required(),
                     ]),
 
-                Forms\Components\Section::make('Schedule')
+                Schemas\Components\Section::make('Schedule')
                     ->schema([
                         Forms\Components\TimePicker::make('time')
                             ->label('Alarm Time')
@@ -84,7 +87,7 @@ class AlarmResource extends Resource
                             ->seconds(false)
                             ->required(),
 
-                        Forms\Components\Grid::make(2)
+                        Schemas\Components\Grid::make(2)
                             ->schema([
                                 Forms\Components\DatePicker::make('scheduled_date')
                                     ->label('One-time Date')
@@ -133,7 +136,7 @@ class AlarmResource extends Resource
                             ->label('Time')
                             ->formatStateUsing(fn ($state) => substr((string) $state, 0, 5))
                             ->weight(FontWeight::Bold)
-                            ->size(Tables\Columns\TextColumn\TextColumnSize::Large)
+                            ->size(TextSize::Large)
                             ->sortable(),
                         Tables\Columns\TextColumn::make('device.mac_address')
                             ->label('Device')
@@ -179,13 +182,13 @@ class AlarmResource extends Resource
                     ->label('Recurring only')
                     ->query(fn (Builder $query) => $query->whereNull('scheduled_date')),
             ])
-            ->actions([
-                Tables\Actions\EditAction::make(),
-                Tables\Actions\DeleteAction::make(),
+            ->recordActions([
+                Actions\EditAction::make(),
+                Actions\DeleteAction::make(),
             ])
-            ->bulkActions([
-                Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
+            ->toolbarActions([
+                Actions\BulkActionGroup::make([
+                    Actions\DeleteBulkAction::make(),
                 ]),
             ]);
     }

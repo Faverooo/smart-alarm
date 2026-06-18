@@ -4,8 +4,10 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\MessageResource\Pages;
 use App\Models\Message;
+use Filament\Actions;
 use Filament\Forms;
-use Filament\Forms\Form;
+use Filament\Schemas;
+use Filament\Schemas\Schema;
 use Filament\Resources\Resource;
 use Filament\Support\Enums\FontWeight;
 use Filament\Tables;
@@ -18,8 +20,8 @@ class MessageResource extends Resource
 {
     protected static ?string $model = Message::class;
 
-    protected static ?string $navigationIcon = 'heroicon-o-chat-bubble-left-right';
-    protected static ?string $navigationGroup = 'Media & Messages';
+    protected static \BackedEnum|string|null $navigationIcon = 'heroicon-o-chat-bubble-left-right';
+    protected static \UnitEnum|string|null $navigationGroup = 'Media & Messages';
     protected static ?int $navigationSort = 3;
 
     // Visible to admins and photo managers (messages are managed by the photo user)
@@ -47,13 +49,13 @@ class MessageResource extends Resource
         return $query;
     }
 
-    public static function form(Form $form): Form
+    public static function form(Schema $schema): Schema
     {
         $user = auth()->user();
 
-        return $form
+        return $schema
             ->schema([
-                Forms\Components\Section::make('Message')
+                Schemas\Components\Section::make('Message')
                     ->schema([
                         Forms\Components\Select::make('device_id')
                             ->label('Device')
@@ -136,13 +138,13 @@ class MessageResource extends Resource
                     ->label('Upcoming')
                     ->query(fn (Builder $query) => $query->where('scheduled_at', '>=', now())),
             ])
-            ->actions([
-                Tables\Actions\EditAction::make(),
-                Tables\Actions\DeleteAction::make(),
+            ->recordActions([
+                Actions\EditAction::make(),
+                Actions\DeleteAction::make(),
             ])
-            ->bulkActions([
-                Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
+            ->toolbarActions([
+                Actions\BulkActionGroup::make([
+                    Actions\DeleteBulkAction::make(),
                 ]),
             ]);
     }
