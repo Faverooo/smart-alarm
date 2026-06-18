@@ -51,6 +51,7 @@
 //   boot    → held during power-on = factory reset
 // (rotation photos advance on their own via interval_minutes — no manual "next")
 #define BTN_PIN       32
+#define BTN_LED_PIN   26    // LED inside the button, driven via BC547 NPN transistor
 
 // ---- LEDC (PWM) channels -----------------------------------------------------
 #define BL_LEDC_CHANNEL     0

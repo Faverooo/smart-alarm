@@ -32,6 +32,9 @@ void begin() {
     pinMode(BUZZER_PIN, OUTPUT);
     digitalWrite(BUZZER_PIN, LOW);
 
+    pinMode(BTN_LED_PIN, OUTPUT);
+    digitalWrite(BTN_LED_PIN, LOW);
+
     tft.init();
     tft.setRotation(1);            // landscape 320x240
     tft.fillScreen(TFT_BLACK);
@@ -51,12 +54,14 @@ void setBrightness(int pct) {
 }
 
 void buzzerOn(int volumePct) {
+    digitalWrite(BTN_LED_PIN, HIGH);
     // Passive buzzer: a ~2.7kHz tone. "Volume" loosely maps to PWM duty.
     ledcSetup(BUZZER_LEDC_CHANNEL, 2700, BUZZER_LEDC_RESOLUTION);
     ledcAttachPin(BUZZER_PIN, BUZZER_LEDC_CHANNEL);
     ledcWrite(BUZZER_LEDC_CHANNEL, map(constrain(volumePct, 0, 100), 0, 100, 0, 200));
 }
 void buzzerOff() {
+    digitalWrite(BTN_LED_PIN, LOW);
     ledcWrite(BUZZER_LEDC_CHANNEL, 0);
     ledcDetachPin(BUZZER_PIN);
     pinMode(BUZZER_PIN, OUTPUT);
