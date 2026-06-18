@@ -55,17 +55,30 @@ void setBrightness(int pct) {
 
 void buzzerOn(int volumePct) {
     digitalWrite(BTN_LED_PIN, HIGH);
+#if BUZZER_ACTIVE
+    // Active 3-pin module: it has its own oscillator. We just trigger it.
+    // No volume control possible — the tone/level is fixed in the module.
+    (void)volumePct;
+    pinMode(BUZZER_PIN, OUTPUT);
+    digitalWrite(BUZZER_PIN, BUZZER_ACTIVE_HIGH ? HIGH : LOW);
+#else
     // Passive buzzer: a ~2.7kHz tone. "Volume" loosely maps to PWM duty.
     ledcSetup(BUZZER_LEDC_CHANNEL, 2700, BUZZER_LEDC_RESOLUTION);
     ledcAttachPin(BUZZER_PIN, BUZZER_LEDC_CHANNEL);
     ledcWrite(BUZZER_LEDC_CHANNEL, map(constrain(volumePct, 0, 100), 0, 100, 0, 200));
+#endif
 }
 void buzzerOff() {
     digitalWrite(BTN_LED_PIN, LOW);
+#if BUZZER_ACTIVE
+    pinMode(BUZZER_PIN, OUTPUT);
+    digitalWrite(BUZZER_PIN, BUZZER_ACTIVE_HIGH ? LOW : HIGH);  // idle = not triggered
+#else
     ledcWrite(BUZZER_LEDC_CHANNEL, 0);
     ledcDetachPin(BUZZER_PIN);
     pinMode(BUZZER_PIN, OUTPUT);
     digitalWrite(BUZZER_PIN, LOW);
+#endif
 }
 
 void showBooting(const String& line) {

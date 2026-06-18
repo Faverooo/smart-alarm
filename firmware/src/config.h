@@ -44,7 +44,14 @@
 
 // ---- GPIO we drive ourselves -------------------------------------------------
 #define BL_PIN        21    // TFT backlight (PWM via LEDC for brightness control)
-#define BUZZER_PIN    25    // passive buzzer / speaker (PWM)
+#define BUZZER_PIN    25    // buzzer signal pin (see BUZZER_ACTIVE below)
+// Buzzer type:
+//   BUZZER_ACTIVE 1 -> 3-pin active module (VCC/IO/GND, built-in oscillator):
+//                      we just drive the IO pin HIGH/LOW, no PWM, no volume control.
+//   BUZZER_ACTIVE 0 -> raw passive buzzer: we generate a ~2.7kHz PWM tone (volume = duty).
+// BUZZER_ACTIVE_HIGH: 1 = sounds when IO is HIGH ("high level trigger"), 0 = sounds on LOW.
+#define BUZZER_ACTIVE       1
+#define BUZZER_ACTIVE_HIGH  1
 // The one and only button (INPUT_PULLUP, wired to GND, active LOW):
 //   ringing → short press = snooze, hold LONG_PRESS_MS = dismiss
 //   idle    → short press = mark the on-screen message as read
