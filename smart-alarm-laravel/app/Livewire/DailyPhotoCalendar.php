@@ -184,7 +184,7 @@ class DailyPhotoCalendar extends Component implements HasActions, HasForms
                 'source'  => 'upload',
                 'caption' => optional($this->photosByDate()->get($arguments['date']))->caption,
             ])
-            ->form([
+            ->schema([
                 Forms\Components\ToggleButtons::make('source')
                     ->label('Add a photo by')
                     ->options([
@@ -204,14 +204,14 @@ class DailyPhotoCalendar extends Component implements HasActions, HasForms
                     ->image()
                     // Live 4:3 crop selector locked to the 320×240 screen.
                     ->imageEditor()
-                    ->imageEditorAspectRatios(['4:3'])
+                    ->imageEditorAspectRatioOptions(['4:3'])
                     ->imageEditorViewportWidth(320)
                     ->imageEditorViewportHeight(240)
                     ->disk(Photo::DISK)
                     ->visibility('private')
                     ->directory('photos')
                     ->maxSize(10240)
-                    ->helperText('Shown on a 4:3 (320×240) screen — use the pencil to crop.')
+                    ->helperText('Shown on a 4:3 (320x240) screen — use the pencil to crop.')
                     ->visible(fn (Get $get) => $get('source') === 'upload')
                     ->requiredIf('source', 'upload'),
 

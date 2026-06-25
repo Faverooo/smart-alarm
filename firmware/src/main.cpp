@@ -534,15 +534,19 @@ void loop() {
                     int idx = pickPhotoIndex(now);
                     renderPhoto(idx);        // full repaint only when the photo changes
 
-                    // Overlay is cheap but repaints a strip of the photo, so only
-                    // redraw it when the displayed minute actually changes.
+                    // The clock updates in place via a small sprite (no flicker);
+                    // a full overlay repaint happens only when the minute tick is
+                    // also a forced redraw (lastClockMinute == -1, e.g. new photo)
+                    // — drawClockOverlay itself escalates to full when the date,
+                    // caption, next-alarm or message changed.
                     if (now.tm_min != lastClockMinute) {
+                        bool full = (lastClockMinute == -1);
                         lastClockMinute = now.tm_min;
                         String caption = (idx >= 0 && idx < (int)data.program.photos.size())
                                        ? data.program.photos[idx].caption : "";
                         DisplayUI::drawClockOverlay(photoJpeg, photoJpegLen, now,
                             data.settings.timeFormat, caption,
-                            nextAlarmLabel(now), dueMessageFor(now));
+                            nextAlarmLabel(now), dueMessageFor(now), full);
                     }
                 }
             }

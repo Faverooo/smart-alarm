@@ -53,20 +53,11 @@ class PhotosRelationManager extends RelationManager
                         ->label('Preview')
                         ->view('tables.columns.photo-lightbox')
                         ->grow(false),
-                    Stack::make([
-                        Tables\Columns\TextColumn::make('caption')
-                            ->label('Caption')
-                            ->placeholder('No caption')
-                            ->weight(FontWeight::Medium)
-                            ->wrap(),
-                        Tables\Columns\TextColumn::make('pivot.scheduled_for')
-                            ->label('Day')
-                            ->date('d/m/Y')
-                            ->placeholder('Any day')
-                            ->icon('heroicon-m-calendar-days')
-                            ->color('gray')
-                            ->visible($isDaily),
-                    ]),
+                    Tables\Columns\TextColumn::make('caption')
+                        ->label('Caption')
+                        ->placeholder('No caption')
+                        ->weight(FontWeight::Medium)
+                        ->wrap(),
                 ])->from('md'),
             ])
             ->emptyStateHeading($isFixed ? 'No photo set yet' : 'No photos yet')
@@ -83,13 +74,13 @@ class PhotosRelationManager extends RelationManager
                     ->color('success')
                     ->visible(fn () => $this->remainingSlots() > 0)
                     ->modalHeading($isFixed ? 'Set the Program Photo' : 'Upload Photos')
-                    ->form(fn () => [
+                    ->schema(fn () => [
                         Forms\Components\FileUpload::make('images')
                             ->label($isFixed ? 'Image' : 'Images')
                             ->image()
                             // Live 4:3 crop selector locked to the 320×240 screen.
                             ->imageEditor()
-                            ->imageEditorAspectRatios(['4:3'])
+                            ->imageEditorAspectRatioOptions(['4:3'])
                             ->imageEditorViewportWidth(320)
                             ->imageEditorViewportHeight(240)
                             ->multiple(! $isFixed)
@@ -136,7 +127,7 @@ class PhotosRelationManager extends RelationManager
                     ->icon('heroicon-o-link')
                     ->visible(fn () => $this->remainingSlots() > 0 && count($this->attachableOptions()) > 0)
                     ->modalHeading('Attach Existing Photos')
-                    ->form(fn () => [
+                    ->schema(fn () => [
                         // Always a multi-select (capped) so the value is consistently an
                         // array — a single-value select tripped "must be an array".
                         Forms\Components\Select::make('photo_ids')
@@ -178,7 +169,7 @@ class PhotosRelationManager extends RelationManager
                             ->where('photo_id', $record->id)
                             ->first()?->pivot?->scheduled_for,
                     ])
-                    ->form([
+                    ->schema([
                         Forms\Components\TextInput::make('caption')
                             ->label('Caption')
                             ->maxLength(255),

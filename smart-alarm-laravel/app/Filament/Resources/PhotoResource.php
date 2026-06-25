@@ -64,7 +64,7 @@ class PhotoResource extends Resource
                             // screen — the user just drags the fixed-ratio box to pick
                             // what to keep; no other shape is possible.
                             ->imageEditor()
-                            ->imageEditorAspectRatios(['4:3'])
+                            ->imageEditorAspectRatioOptions(['4:3'])
                             ->imageEditorViewportWidth(320)
                             ->imageEditorViewportHeight(240)
                             ->disk(\App\Models\Photo::DISK)

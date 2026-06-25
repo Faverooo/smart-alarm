@@ -18,14 +18,19 @@ namespace DisplayUI {
 
     // iOS-lock-screen style overlay: the photo stays clear in the background;
     // the clock/date/caption float over it in the lower-left with an outline
-    // halo for legibility (no solid bars). Only the text regions are repainted
-    // from `jpeg` (pass the same bytes used for the background), so calling this
-    // once a minute leaves the rest of the photo untouched. `jpeg` may be null
-    // (no program) → the text strips fall back to black.
+    // halo for legibility (no solid bars). `jpeg` may be null (no program) → the
+    // text strips fall back to black.
+    //
+    // A plain minute tick repaints ONLY the hero clock (composited off-screen in
+    // a small sprite → no flicker, the rest of the photo is untouched). Pass
+    // `full = true` to force a complete repaint of the overlay — required after
+    // the background was redrawn (new photo, ringing/OTA screen restored). The
+    // call also promotes itself to a full repaint automatically when the date,
+    // AM/PM, caption, next-alarm or message text changes.
     void drawClockOverlay(const uint8_t* jpeg, size_t len,
                           const struct tm& now, const String& timeFormat,
                           const String& caption, const String& nextAlarm,
-                          const String& dueMessage);
+                          const String& dueMessage, bool full = true);
 
     // Full-screen ringing overlay shown while an alarm is firing.
     void showRinging(const String& alarmTime, const String& caption);
