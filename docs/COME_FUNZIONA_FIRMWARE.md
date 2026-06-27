@@ -20,7 +20,7 @@ Numeri che cambiano il modo di programmare rispetto a un server:
 | Flash | 4 MB, ~1.9 MB per slot app | il binario deve starci DUE volte (OTA, §8) |
 | CPU | 240 MHz dual core | TLS e JPEG decode si fanno, ma costano |
 | OS | nessuno (FreeRTOS sotto Arduino, ma per noi: un `loop()`) | niente thread "comodi": tutto è cooperativo |
-| Storage | NVS (key-value su flash) + LittleFS | scritture flash limitate → si persiste il minimo |
+| Storage | NVS (key-value su flash) | scritture flash limitate → si persiste il minimo (solo il token) |
 | PSRAM | **assente** (board `esp32dev` liscia) | niente buffer grandi extra: lo dimostra la sprite dell'orologio (§7.2) |
 
 E il modello di esecuzione Arduino è due funzioni:
@@ -39,15 +39,15 @@ comodi come su un server.
 ```
 firmware/
 ├── platformio.ini      # board, librerie, PIN del TFT (build flags), partizioni
-├── data/               # contenuto della partizione LittleFS
-│   ├── README.md       # ← qui va clock.vlw (vedi §7.4); di default NON c'è ancora
-│   └── clock.vlw       # font anti-aliased per l'ora (opzionale)
+├── tools/
+│   └── genclock.py     # rigenera src/ClockFont.h (il font dell'ora) — vedi §7.4
 └── src/
     ├── config.h        # TUTTE le costanti: URL server, TZ, pin, intervalli, cap
     ├── types.h         # struct che rispecchiano il payload di /sync
-    ├── Storage.{h,cpp} # persistenza NVS: SOLO il token (§5.5 spiega perché)
-    ├── ApiClient.{h,cpp} # tutto l'HTTP verso Laravel
-    ├── DisplayUI.{h,cpp} # disegno su TFT, decode JPEG, buzzer, retroilluminazione
+    ├── Storage.{h,cpp}    # persistenza NVS: SOLO il token (§5.5 spiega perché)
+    ├── ApiClient.{h,cpp}  # tutto l'HTTP verso Laravel
+    ├── DisplayUI.{h,cpp}  # disegno su TFT, decode JPEG, buzzer, retroilluminazione
+    ├── *Font*.h           # font anti-aliased embedded: NotoSansBold15/36, ClockFont (§7.3)
     └── main.cpp        # la macchina a stati + il loop
 ```
 
@@ -370,9 +370,9 @@ schermo) ri-decodificando il JPEG: si vedeva "lampeggiare" mezza pagina. Ora
 
 Perché la sprite è "piccola" e non a schermo intero? Perché **non c'è PSRAM**: una
 sprite 320×240 sarebbe 150 KB. Quella dell'ora è dimensionata sulle sole cifre
-(la stringa più larga è `"00:00"`) per il font attivo → **~13 KB** col font
-interno, **~40 KB** con un VLW da 72px. La sprite si crea e si distrugge ad ogni
-aggiornamento (transitoria), così non resta occupata mentre girano TLS/JPEG.
+(la stringa più larga è `"00:00"`) per il font dell'orologio da 60px → **~14 KB**.
+La sprite si crea e si distrugge ad ogni aggiornamento (transitoria), così non
+resta occupata mentre girano TLS/JPEG.
 
 Come fa il pezzo di foto a finire dentro la sprite? Un puntatore globale
 (`g_capture`) dice al callback del decoder JPEG di **redirigere i blocchi nella
@@ -381,59 +381,57 @@ vengono scartati dal clipping). Bonus: scrivere il testo *nella sprite* fa sì c
 l'anti-aliasing del font si fonda contro i **pixel reali della foto** lì presenti
 — niente più bordi "sporchi" dovuti alle letture inaffidabili del pannello ILI9341.
 
-Il testo usa un **alone (halo)**: la stringa viene disegnata più volte in nero
-attorno alla posizione vera (raggio 1–2 px) e una volta nel colore pieno sopra —
-leggibile su QUALSIASI foto senza barre piene di sfondo.
+Il testo usa un'**ombra portata (drop shadow)**: la stringa viene stampata una
+volta in nero spostata di 1 px in basso-a-destra, poi nel colore pieno sopra —
+leggibile su QUALSIASI foto senza barre piene di sfondo, e l'anti-aliasing la
+tiene morbida (un leggero distacco dalla foto, non un alone con bordi).
 
-### 7.3 Font dell'orologio (perché "scalettato" o "liscio")
+### 7.3 I font: tutti anti-aliased, tutti embedded
 
-- L'**ora grande** usa il font smooth `/clock.vlw` da LittleFS **se presente**
-  (anti-aliased, stile lock-screen). `DisplayUI::begin()` controlla al boot se il
-  file c'è e imposta `clockFontAvailable`.
-- Se **non c'è** (è il caso di default: in `data/` c'è solo il README), si
-  ripiega sul **font 6 integrato**: pulito ma bitmap, quindi a bordi netti
-  ("scalettato"). Il firmware funziona comunque, è solo meno bello.
-- Data, AM/PM, caption, messaggio usano i font bitmap integrati (2 e 4): non
-  hanno bisogno del VLW.
+Niente font da caricare a runtime: i tre font sono **array in flash** (VLW, il
+formato smooth-font di TFT_eSPI) inclusi direttamente dal codice. L'ora è quindi
+**sempre** liscia, senza dipendere da file su una partizione separata.
 
-Per avere i numeri lisci devi **generare `clock.vlw`** → §7.4.
+| Font | File | Uso |
+|---|---|---|
+| **ClockFont** 60px (Arial Bold) | `src/ClockFont.h` | solo l'ora grande "HH:MM" |
+| **NotoSans Bold** 36px | `src/NotoSansBold36.h` | titoli (boot, pairing, ringing) |
+| **NotoSans Bold** 15px | `src/NotoSansBold15.h` | etichette: data, AM/PM, caption, prossima sveglia, messaggio |
 
-### 7.4 Generare e installare il font `clock.vlw`
+`ClockFont` è cucito su misura: contiene **solo** lo spazio, le cifre `0–9` e `:`
+— è tutto ciò che l'ora mostra — così l'array resta piccolo nonostante i 60px. Lo
+genera lo script `tools/genclock.py` (§7.4). I due NotoSans arrivano già pronti
+dagli esempi smooth-font di TFT_eSPI.
 
-Il `.vlw` è un formato di font di **Processing**; si crea una volta sola con il
-tool che arriva dentro TFT_eSPI. Si fa su Windows/Mac (serve l'interfaccia
-grafica), non dentro WSL.
+`fitVlw()` sceglie, per ogni etichetta, il font più grande che entra nella
+larghezza disponibile; se nemmeno il più piccolo basta, tronca con "…" invece di
+tagliare il testo a metà.
 
-1. **Installa Processing** da <https://processing.org/download> (è uno zip da
-   estrarre, niente installazione).
-2. **Procurati un .ttf** rotondo (Inter, SF Pro, Helvetica, Roboto…). Puoi usare
-   un font di sistema per nome, oppure copiare il `.ttf` nella cartella `data/`
-   dello sketch.
-3. **Apri lo sketch** `Create_font.pde`:
-   `firmware/.pio/libdeps/esp32dev/TFT_eSPI/Tools/Create_Smooth_Font/Create_font/Create_font.pde`
-4. In cima al file modifica i parametri:
-   - `fontName = "Inter";`  (il nome del tuo font/ttf)
-   - `fontSize = 72;`       (la dimensione "hero"; 64–80 va bene su 320×240)
-   - *(opzionale, per un file piccolo)* attiva il set "characters for showing
-     time": cambia il `/*` in `//*` sopra la riga con `0x0030…0x003A` (cifre e `:`).
-     Se non lo tocchi, genera tutto l'alfabeto Latin (~40 KB): funziona uguale.
-5. Premi **▶ Run**. A fine esecuzione si apre la cartella `FontFiles/` con dentro
-   `Inter72.vlw`.
-6. **Rinominalo** in **`clock.vlw`** e copialo in **`firmware/data/clock.vlw`**
-   (da Windows il path WSL è tipo `\\wsl$\...\smart-alarm\firmware\data\`).
-7. **Flasha la partizione** dei file (separata dal codice!):
-   ```bash
-   cd firmware
-   ~/.platformio/penv/bin/pio run -t uploadfs
-   ```
-   Al reboot `DisplayUI::begin()` trova `/clock.vlw` da solo e passa ai numeri
-   lisci — nessuna modifica al codice.
+### 7.4 Rigenerare il font dell'orologio (`tools/genclock.py`)
 
-> Per l'orologio servono solo cifre e `:`; AM/PM lo disegno col font bitmap
-> interno, quindi un font con sole cifre basta. Se installi un VLW molto alto
-> (72px) verifica a video che le cifre non tocchino la caption in basso: la banda
-> della sprite si auto-dimensiona sull'altezza del font, ma il layout a 240px è
-> denso.
+L'ora grande la "cuoce" uno script Python una volta sola; il risultato
+(`src/ClockFont.h`) è versionato, quindi **di norma non devi fare niente**. Lo
+rilanci solo se vuoi cambiare dimensione o tipo di carattere.
+
+```bash
+pip install pillow            # una volta: serve a rasterizzare il font
+python tools/genclock.py      # sovrascrive src/ClockFont.h, poi ricompila
+```
+
+Lo script apre un `.ttf` (default Arial Bold da `C:\Windows\Fonts\arialbd.ttf`),
+rasterizza **solo** spazio + `0–9` + `:` alla dimensione `SIZE` (default **60**)
+e impacchetta tutto nel formato VLW di TFT_eSPI dentro l'array `ClockFont`. Per
+cambiare aspetto modifichi le costanti in cima al file:
+
+- `SIZE` → l'ora più grande/piccola (verifica a video che non tocchi la caption
+  in basso: il layout a 240px è denso).
+- `TTF`  → un altro carattere (Arial Bold è neutro e combacia bene con i NotoSans
+  delle etichette).
+
+Niente `uploadfs`: il font è dentro il binario, quindi dopo aver rigenerato l'`.h`
+basta `pio run -t upload`. Le posizioni a schermo e l'ombra stanno in cima a
+`src/DisplayUI.cpp` (`CLOCK_*`, `SHADOW_*`) e potrebbero volere un piccolo
+ritocco quando cambi `SIZE`.
 
 ### 7.5 Buzzer e retroilluminazione
 
@@ -451,10 +449,10 @@ grafica), non dentro WSL.
 ## 8. OTA: come si aggiorna da solo
 
 La flash è partizionata (`min_spiffs.csv`) con **due slot applicazione** da
-~1.9 MB + una piccola partizione LittleFS (~190 KB, dove sta il font): si esegue
-da uno slot, si scrive l'aggiornamento nell'altro, e il bootloader scambia gli
-slot al riavvio. Se la scrittura fallisce a metà → si riavvia nello slot vecchio:
-l'OTA non può "brickare" il device.
+~1.9 MB + una piccola partizione filesystem (~190 KB, **attualmente inutilizzata**
+— i font sono nel binario, §7.3): si esegue da uno slot, si scrive l'aggiornamento
+nell'altro, e il bootloader scambia gli slot al riavvio. Se la scrittura fallisce
+a metà → si riavvia nello slot vecchio: l'OTA non può "brickare" il device.
 
 Flusso (`checkFirmwareUpdate()` in `main.cpp`, ogni 6 h + 1 min dopo il boot):
 
@@ -530,15 +528,14 @@ Riassunto dei pattern embedded visti, riutilizzabili ovunque:
 
 ```bash
 cd firmware
-~/.platformio/penv/bin/pio run                  # compila (stampa uso RAM/flash)
-~/.platformio/penv/bin/pio run -t upload        # flash del CODICE via USB
-~/.platformio/penv/bin/pio run -t uploadfs      # flash dei FILE (data/ → il font) su LittleFS
-~/.platformio/penv/bin/pio device monitor       # seriale a 115200 baud
+pio run                  # compila (stampa uso RAM/flash)
+pio run -t upload        # compila + flash via USB
+pio device monitor       # seriale a 115200 baud
 ```
 
-> `upload` e `uploadfs` sono **due cose diverse**: il primo scrive il programma,
-> il secondo il contenuto di `data/` (il font) in una partizione separata. Dopo
-> aver aggiunto `clock.vlw` serve `uploadfs`, altrimenti il device non lo vede.
+> Tutti i font sono nel binario (§7.3), quindi **non esiste uno step `uploadfs`**:
+> `pio run -t upload` flasha tutto in un colpo e la partizione filesystem resta
+> vuota.
 
 Dove sono i pin / l'URL del server / il fuso? Tutto in `config.h` (e i pin del TFT
 in `platformio.ini`). L'URL si può anche passare come build flag
@@ -569,6 +566,6 @@ macchina a stati: ogni passo verde sblocca il successivo.
 4. `ApiClient.cpp`: prima `sync()` (ETag), poi `fetchPhoto()` (JpegBuffer), poi
    `pairInit()`/`forget()` (il giro del token).
 5. `DisplayUI.cpp`: `tftBlit` + `drawHeroTime` (la sprite) + `drawClockOverlay`
-   (full vs solo-ora) + `halo`.
+   (full vs solo-ora) + `shadowText` (l'ombra portata).
 6. Rileggi la parte ETag della guida backend: vedere ENTRAMBI i lati dell'ETag è
    il momento in cui il design "fa click".

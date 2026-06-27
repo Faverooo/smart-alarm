@@ -66,7 +66,6 @@ PairInfo ApiClient::pairInit(const String& mac) {
                 _token = token;
                 r.ok          = true;
                 r.pairingCode = String((const char*)(doc["pairing_code"] | ""));
-                r.name        = String((const char*)(doc["name"] | ""));
                 r.expiresIn   = doc["expires_in"] | 0L;
             } else {
                 Serial.println("[pairInit] empty device_token in response");
@@ -98,7 +97,6 @@ PairStatus ApiClient::pairStatus() {
         } else {
             r.ok          = true;
             r.paired      = doc["paired"] | false;
-            r.name        = String((const char*)(doc["name"] | ""));
             r.pairingCode = String((const char*)(doc["pairing_code"] | ""));
             r.expiresIn   = doc["expires_in"] | 0L;
         }
@@ -123,7 +121,6 @@ PairInfo ApiClient::forget() {
                 _token = token;
                 r.ok          = true;
                 r.pairingCode = String((const char*)(doc["pairing_code"] | ""));
-                r.name        = String((const char*)(doc["name"] | ""));
                 r.expiresIn   = doc["expires_in"] | 0L;
             }
         }
@@ -155,10 +152,6 @@ SyncResult ApiClient::sync(SyncData& out) {
     if (err) { http.end(); return SyncResult::Error; }
 
     out = SyncData{};  // reset
-    out.serverTime = String((const char*)(doc["server_time"] | ""));
-    out.timezone   = String((const char*)(doc["timezone"] | ""));
-    out.revision   = String((const char*)(doc["revision"] | ""));
-    out.deviceName = String((const char*)(doc["device"]["name"] | ""));
 
     JsonObject s = doc["settings"];
     if (!s.isNull()) {

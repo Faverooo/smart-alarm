@@ -37,18 +37,22 @@ held at power-on = factory reset.
 cd firmware
 pio run                 # compile
 pio run -t upload       # flash the firmware over USB
-pio run -t uploadfs     # flash the LittleFS data partition (clock font) — optional
 pio device monitor      # serial @115200
 ```
 
 ## Clock face
 The home screen is an iOS-lock-screen style overlay: the photo stays clear and
-full-bleed, with the date + large clock floating lower-left, kept legible by an
-outline halo (no boxes). The hero time uses an anti-aliased **`clock.vlw`** font
-if you install one (see `data/README.md`); otherwise it falls back automatically
-to the built-in 7-segment font. Pixel positions live at the top of
-`drawClockOverlay()` in `src/DisplayUI.cpp` and may want a nudge once you see it
-on your panel.
+full-bleed, with the date above a large clock lower-left and the **next alarm
+(day + time)** stacked in the bottom-right. Text is anti-aliased and embedded as
+flash arrays (always smooth, no asset upload): the hero clock is a big **60 px**
+face (`src/ClockFont.h`), and everything else is **NotoSans Bold** at 36 px
+(headings) / 15 px (labels). Text floats over the photo with a light single-offset
+drop shadow (the glyphs stamped 1 px down-right in black; AA keeps it soft, not a
+halo) and labels auto-fit to the panel width, ellipsizing rather than clipping.
+
+To resize the clock, edit `SIZE` in `tools/genclock.py` and re-run it. Pixel
+positions and the shadow live at the top of `src/DisplayUI.cpp` (`CLOCK_*`,
+`SHADOW_*`, `drawClockOverlay()`) and may want a nudge once you see it on the panel.
 
 ## First-run flow
 1. Boots into a WiFi captive portal (`SmartAlarm-Setup`); join it and enter your

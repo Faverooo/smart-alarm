@@ -2,16 +2,15 @@
 #include "config.h"
 #include <TFT_eSPI.h>
 #include <TJpg_Decoder.h>
-#include <FS.h>
-#include <LittleFS.h>
+
+// Anti-aliased fonts embedded as flash arrays (no asset upload, always smooth):
+// NotoSans Bold at 36 px (headings) and 15 px (labels), plus a big 60 px clock
+// face (Arial Bold, digits + ':' only — see tools/genclock.py) for the hero time.
+#include "NotoSansBold15.h"
+#include "NotoSansBold36.h"
+#include "ClockFont.h"
 
 static TFT_eSPI tft;
-
-// Optional anti-aliased clock font. If data/clock.vlw is present on LittleFS we
-// load it for the hero time (true iPhone-style numerals); otherwise we fall back
-// to the built-in font 6 so the firmware still works with no asset.
-static const char* CLOCK_FONT = "clock";   // → /clock.vlw
-static bool clockFontAvailable = false;
 
 // When set, the JPEG decoder's output is redirected into this sprite instead of
 // the panel — used to composite the clock over the photo background off-screen
@@ -56,10 +55,6 @@ void begin() {
     TJpgDec.setJpgScale(1);
     TJpgDec.setSwapBytes(true);
     TJpgDec.setCallback(tftBlit);
-
-    // Mount the font filesystem (format if blank) and look for the clock font.
-    if (LittleFS.begin(true))
-        clockFontAvailable = LittleFS.exists("/" + String(CLOCK_FONT) + ".vlw");
 }
 
 void setBrightness(int pct) {
@@ -95,68 +90,147 @@ void buzzerOff() {
 #endif
 }
 
+// ---- Anti-aliased type sizes -------------------------------------------------
+// Largest → smallest: fitVlw() picks the biggest that fits the width, else
+// ellipsizes. 36 px for the clock & headings, 15 px for labels.
+static const uint8_t* const LADDER_BIG[]  = { NotoSansBold36, NotoSansBold15 };
+static const uint8_t* const LADDER_TEXT[] = { NotoSansBold15 };
+
+// ---- Hero clock geometry (shared by drawHeroTime + drawClockOverlay) ---------
+static const int CLOCK_X = 16, CLOCK_Y = 162;   // top-left of the big time
+
+// ---- Drop shadow --------------------------------------------------------------
+// One light stamp of the glyphs 1 px down-right in black, then the fill on top.
+// The AA font keeps it soft — a subtle lift off the photo, no halo or box.
+static const int SHADOW_DX = 1, SHADOW_DY = 1, SHADOW_PAD = 2;
+
+// Background the text floats over: a photo (decoded into the work sprite) when
+// `jpeg` is set, otherwise a solid colour fill.
+struct Bg { const uint8_t* jpeg = nullptr; size_t len = 0; uint16_t solid = TFT_BLACK; };
+
+// Pick the largest font on `ladder` whose render of `s` fits within `maxW`; if
+// even the smallest overflows, ellipsize `s` ("..."). Returns the chosen font.
+static const uint8_t* fitVlw(String& s, const uint8_t* const* ladder, int n, int maxW) {
+    for (int i = 0; i < n; i++) {
+        tft.loadFont(ladder[i]);
+        int w = tft.textWidth(s);
+        tft.unloadFont();
+        if (w <= maxW) return ladder[i];
+    }
+    tft.loadFont(ladder[n - 1]);
+    while (s.length() > 1 && tft.textWidth(s + "...") > maxW) s.remove(s.length() - 1);
+    tft.unloadFont();
+    s += "...";
+    return ladder[n - 1];
+}
+
+// Render `s` at (ax,ay)/`datum` in `font` with the light drop shadow. AA text
+// needs a clean background to blend its edges against, and ILI9341 read-back is
+// unreliable, so we composite in an off-screen sprite holding the real photo (or
+// solid colour) and blit once — smooth, no flicker, rest of the screen untouched.
+static void shadowText(const String& s, int ax, int ay, uint8_t datum,
+                       uint16_t fill, const uint8_t* font, const Bg& bg) {
+    if (!s.length()) return;
+
+    tft.loadFont(font);
+    int tw = tft.textWidth(s), th = tft.fontHeight();
+    tft.unloadFont();
+    if (tw <= 0 || th <= 0) return;
+
+    const int padTL = 1, padBR = SHADOW_PAD + 1;
+    const int W = tw + padTL + padBR, H = th + padTL + padBR;
+
+    // datum → screen top-left of the text box (col: 0=L 1=C 2=R, row: 0=T 1=M 2=B).
+    int col = datum % 3, row = (datum / 3) % 3;
+    int tx = ax - (col == 1 ? tw / 2 : col == 2 ? tw : 0);
+    int ty = ay - (row == 1 ? th / 2 : row == 2 ? th : 0);
+    const int ox = tx - padTL, oy = ty - padTL;    // sprite origin on screen
+
+    TFT_eSprite spr(&tft);
+    spr.setColorDepth(16);
+    if (!spr.createSprite(W, H)) {                 // out of RAM → draw straight
+        tft.loadFont(font);
+        tft.setTextDatum(datum);
+        tft.setTextColor(fill);
+        tft.drawString(s, ax, ay);
+        tft.unloadFont();
+        return;
+    }
+    if (bg.jpeg && bg.len) {
+        g_capture = &spr; g_capX = ox; g_capY = oy;
+        TJpgDec.drawJpg(0, 0, bg.jpeg, bg.len);
+        g_capture = nullptr;
+    } else {
+        spr.fillSprite(bg.solid);
+    }
+
+    spr.loadFont(font);
+    spr.setTextDatum(TL_DATUM);
+    spr.setTextColor(TFT_BLACK);                   // light cast shadow, down-right
+    spr.drawString(s, padTL + SHADOW_DX, padTL + SHADOW_DY);
+    spr.setTextColor(fill);                        // crisp AA fill on top
+    spr.drawString(s, padTL, padTL);
+    spr.unloadFont();
+
+    spr.pushSprite(ox, oy);
+    spr.deleteSprite();
+}
+
+// Auto-fit a label to `maxW`, then draw it with the drop shadow. `s` is taken by
+// value because fitVlw may ellipsize it.
+static void drawFit(String s, int x, int y, uint8_t datum, uint16_t fill,
+                    const uint8_t* const* ladder, int n, int maxW, const Bg& bg) {
+    if (!s.length()) return;
+    shadowText(s, x, y, datum, fill, fitVlw(s, ladder, n, maxW), bg);
+}
+
 void showBooting(const String& line) {
+    const int W = tft.width(), H = tft.height();
     tft.fillScreen(TFT_BLACK);
-    tft.setTextColor(TFT_WHITE, TFT_BLACK);
-    tft.setTextDatum(MC_DATUM);
-    tft.drawString("Smart Alarm", tft.width() / 2, tft.height() / 2 - 20, 4);
-    tft.drawString(line, tft.width() / 2, tft.height() / 2 + 20, 2);
+    Bg bg{nullptr, 0, TFT_BLACK};
+    drawFit("Smart Alarm", W / 2, H / 2 - 30, MC_DATUM, TFT_WHITE,
+            LADDER_BIG, 2, W - 28, bg);
+    drawFit(line, W / 2, H / 2 + 22, MC_DATUM, TFT_LIGHTGREY,
+            LADDER_TEXT, 1, W - 28, bg);
 }
 
 void showWifiPortal(const String& apName) {
+    const int W = tft.width();
     tft.fillScreen(TFT_NAVY);
-    tft.setTextColor(TFT_WHITE, TFT_NAVY);
-    tft.setTextDatum(MC_DATUM);
-    tft.drawString("WiFi setup", tft.width() / 2, 60, 4);
-    tft.drawString("Connect to WiFi network:", tft.width() / 2, 120, 2);
-    tft.drawString(apName, tft.width() / 2, 150, 4);
-    tft.drawString("then open the portal page", tft.width() / 2, 190, 2);
+    Bg bg{nullptr, 0, TFT_NAVY};
+    drawFit("Wi-Fi setup", W / 2, 44, MC_DATUM, TFT_WHITE,
+            LADDER_BIG, 2, W - 28, bg);
+    drawFit("Connect to this network:", W / 2, 102, MC_DATUM, TFT_LIGHTGREY,
+            LADDER_TEXT, 1, W - 28, bg);
+    drawFit(apName, W / 2, 138, MC_DATUM, TFT_GREENYELLOW,
+            LADDER_BIG, 2, W - 28, bg);
+    drawFit("then open the portal page", W / 2, 186, MC_DATUM, TFT_LIGHTGREY,
+            LADDER_TEXT, 1, W - 28, bg);
 }
 
 void showPairing(const String& code, const String& mac, long secondsLeft) {
+    const int W = tft.width();
     tft.fillScreen(TFT_BLACK);
-    tft.setTextDatum(MC_DATUM);
-    tft.setTextColor(TFT_CYAN, TFT_BLACK);
-    tft.drawString("Pair this device", tft.width() / 2, 40, 4);
-
-    tft.setTextColor(TFT_WHITE, TFT_BLACK);
-    tft.drawString("Enter this code in the app:", tft.width() / 2, 90, 2);
-    tft.setTextColor(TFT_GREENYELLOW, TFT_BLACK);
-    tft.drawString(code, tft.width() / 2, 140, 4);
-
-    tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
-    tft.drawString(mac, tft.width() / 2, 195, 2);
+    Bg bg{nullptr, 0, TFT_BLACK};
+    drawFit("Pair this device", W / 2, 28, MC_DATUM, TFT_CYAN,
+            LADDER_BIG, 2, W - 28, bg);
+    drawFit("Enter this code in the app", W / 2, 74, MC_DATUM, TFT_LIGHTGREY,
+            LADDER_TEXT, 1, W - 28, bg);
+    drawFit(code, W / 2, 126, MC_DATUM, TFT_GREENYELLOW,
+            LADDER_BIG, 2, W - 24, bg);
+    drawFit(mac, W / 2, 184, MC_DATUM, TFT_DARKGREY,
+            LADDER_TEXT, 1, W - 24, bg);
     if (secondsLeft > 0) {
         long m = secondsLeft / 60, s = secondsLeft % 60;
         char buf[32];
         snprintf(buf, sizeof(buf), "expires in %ld:%02ld", m, s);
-        tft.drawString(buf, tft.width() / 2, 220, 2);
+        drawFit(buf, W / 2, 216, MC_DATUM, TFT_LIGHTGREY,
+                LADDER_TEXT, 1, W - 24, bg);
     }
 }
 
 bool drawPhoto(const uint8_t* jpeg, size_t len) {
     return TJpgDec.drawJpg(0, 0, jpeg, len) == JDR_OK;
-}
-
-// Draw `s` with a dark outline halo so it stays legible over ANY photo, then the
-// fill colour on top. `r` is the halo radius in px (1 = subtle, 2 = bold). Text
-// background is transparent, so the photo shows through around the glyphs. Works
-// on the panel or a sprite (`g`). `font` >= 0 selects a built-in numbered font;
-// `font` < 0 uses the smooth (VLW) font the caller has already loaded on `g`.
-static void halo(TFT_eSPI& g, const String& s, int x, int y, int font,
-                 uint8_t datum, uint16_t fill, int r) {
-    if (!s.length()) return;
-    g.setTextDatum(datum);
-    g.setTextColor(TFT_BLACK);              // transparent bg → halo only
-    for (int dx = -r; dx <= r; dx++)
-        for (int dy = -r; dy <= r; dy++)
-            if (dx || dy) {
-                if (font >= 0) g.drawString(s, x + dx, y + dy, font);
-                else           g.drawString(s, x + dx, y + dy);
-            }
-    g.setTextColor(fill);
-    if (font >= 0) g.drawString(s, x, y, font);
-    else           g.drawString(s, x, y);
 }
 
 // Repaint just the strip [0, sy]..[W, sy+sh] from the cached photo (or black),
@@ -169,57 +243,27 @@ static void repaintStrip(const uint8_t* jpeg, size_t len, int sy, int sh) {
     tft.resetViewport();
 }
 
-// Composite the hero clock string over the photo background in a small
-// off-screen sprite, then blit it in one shot. The sprite is sized to the
-// digits ("00:00" is the widest H:MM) for the active font, so RAM stays tiny
-// (~13KB with the built-in font, ~40KB with a 72px VLW) and a per-minute redraw
-// neither flickers nor repaints the rest of the screen. Smooth-font AA blends
-// against the real photo pixels held in the sprite — no flaky ILI9341 reads.
+// Width/height of the hero "00:00" band, to size the sprite and place the AM/PM
+// tag beside the digits.
+static void measureHero(int& w, int& h) {
+    tft.loadFont(ClockFont);
+    w = tft.textWidth("00:00"); h = tft.fontHeight();
+    tft.unloadFont();
+}
+
+// Draw the hero clock over the photo background with the drop shadow. shadowText()
+// composites in an off-screen sprite, so the per-minute redraw neither flickers
+// nor touches the rest of the photo.
 static void drawHeroTime(const uint8_t* jpeg, size_t len, const String& s) {
-    const int x = 16, y = 164, r = 2;      // screen position (top-left) + halo radius
-
-    // Measure the band for whichever font is active.
-    int bw, bh;
-    if (clockFontAvailable) {
-        tft.loadFont(CLOCK_FONT, LittleFS);
-        bw = tft.textWidth("00:00"); bh = tft.fontHeight();
-        tft.unloadFont();
-    } else {
-        bw = tft.textWidth("00:00", 6); bh = tft.fontHeight(6);
-    }
-    const int bx = x - r, by = y - r;
-    const int w  = bw + 2 * r + 2, h = bh + 2 * r + 2;
-
-    TFT_eSprite spr(&tft);
-    spr.setColorDepth(16);
-    if (spr.createSprite(w, h)) {
-        // Fill the sprite with the photo pixels under the band (or black).
-        if (jpeg && len) {
-            g_capture = &spr; g_capX = bx; g_capY = by;
-            TJpgDec.drawJpg(0, 0, jpeg, len);
-            g_capture = nullptr;
-        } else {
-            spr.fillSprite(TFT_BLACK);
-        }
-        if (clockFontAvailable) spr.loadFont(CLOCK_FONT, LittleFS);
-        halo(spr, s, x - bx, y - by, clockFontAvailable ? -1 : 6, TL_DATUM, TFT_WHITE, r);
-        if (clockFontAvailable) spr.unloadFont();
-        spr.pushSprite(bx, by);
-        spr.deleteSprite();
-    } else {
-        // Out of RAM: composite straight on the panel (one small flash, but the
-        // clock never stalls). repaintStrip clips to the band via a viewport.
-        repaintStrip(jpeg, len, by, h);
-        if (clockFontAvailable) tft.loadFont(CLOCK_FONT, LittleFS);
-        halo(tft, s, x, y, clockFontAvailable ? -1 : 6, TL_DATUM, TFT_WHITE, r);
-        if (clockFontAvailable) tft.unloadFont();
-    }
+    shadowText(s, CLOCK_X, CLOCK_Y, TL_DATUM, TFT_WHITE, ClockFont,
+               {jpeg, len, TFT_BLACK});
 }
 
 void drawClockOverlay(const uint8_t* jpeg, size_t len,
                       const struct tm& now, const String& timeFormat,
                       const String& caption, const String& nextAlarm,
-                      const String& dueMessage, bool full) {
+                      const String& nextAlarmDate, const String& dueMessage,
+                      bool full) {
     const int W = tft.width(), H = tft.height();
 
     // Build the strings up front so we can tell what actually changed.
@@ -236,53 +280,83 @@ void drawClockOverlay(const uint8_t* jpeg, size_t len,
     String ampm = h12 ? (now.tm_hour < 12 ? "AM" : "PM") : String();
 
     // What was on screen last time, so a plain minute tick only redraws the time.
-    static String pDate, pCaption, pNext, pMsg, pAmpm;
+    static String pDate, pCaption, pNext, pNextDate, pMsg, pAmpm;
 
     // A full repaint is only needed when something OTHER than H:MM changed: the
     // background was just redrawn (`full`), the day rolled over, AM/PM flipped, or
     // the caption / next-alarm / message text changed. Otherwise we update only
     // the hero clock — no flicker, the rest of the photo is left untouched.
     bool heavy = full || date != pDate || ampm != pAmpm || caption != pCaption
-              || nextAlarm != pNext || dueMessage != pMsg;
+              || nextAlarm != pNext || nextAlarmDate != pNextDate || dueMessage != pMsg;
+
+    Bg photo{jpeg, len, TFT_BLACK};
 
     if (heavy) {
-        // ---- bottom block: date + hero time + caption / next alarm ----------
-        const int sy = 104, sh = H - 104;
-        repaintStrip(jpeg, len, sy, sh);
+        // No program/photo → solid black behind everything (the strip repaints
+        // below only cover top + bottom, so clear the whole panel here).
+        if (!jpeg) tft.fillScreen(TFT_BLACK);
+        else       repaintStrip(jpeg, len, 104, H - 104);   // restore photo, bottom
 
-        // Date sits just above the clock band (drawHeroTime owns y=162 down).
-        halo(tft, date, 18, 136, 4, TL_DATUM, TFT_WHITE, 1);
-        // Hero clock — VLW smooth font if installed, else font 6. iOS feel.
+        // Compact, bottom-anchored cluster: caption hugs the bottom edge (same
+        // baseline as the next-alarm corner), with the clock just above it and the
+        // date just above that. The clock font is cropped tight to the digits
+        // (band height `ch`) so the three lines stack close without the clock's
+        // opaque sprite — repainted every minute — overlapping and erasing them.
+        int cw, ch; measureHero(cw, ch);
+
+        // Date just above the digits.
+        drawFit(date, CLOCK_X + 2, CLOCK_Y - 26, TL_DATUM, TFT_WHITE,
+                LADDER_TEXT, 1, W - 2 * CLOCK_X, photo);
+
+        // Hero clock — 60 px clock face, composited over the photo.
         drawHeroTime(jpeg, len, timeStr);
 
-        if (h12)  // small AM/PM under the time
-            halo(tft, ampm, 18, 220, 2, TL_DATUM, TFT_WHITE, 1);
+        // AM/PM tag riding to the right of the digits (12h only).
+        if (h12)
+            drawFit(ampm, CLOCK_X + cw + 12, CLOCK_Y + ch, BL_DATUM,
+                    TFT_WHITE, LADDER_TEXT, 1, 64, photo);
+
+        // Caption pinned to the bottom-left, aligned with the next-alarm corner.
         if (caption.length())
-            halo(tft, caption, 18, H - 6, 2, BL_DATUM, TFT_WHITE, 1);
-        if (nextAlarm.length())
-            halo(tft, "next " + nextAlarm, W - 14, H - 6, 2, BR_DATUM, TFT_CYAN, 1);
+            drawFit(caption, CLOCK_X, H - 6, BL_DATUM, TFT_WHITE,
+                    LADDER_TEXT, 1, 168, photo);
+
+        // Next alarm in the bottom-right: date line stacked above the time line.
+        if (nextAlarm.length()) {
+            if (nextAlarmDate.length())
+                drawFit(nextAlarmDate, W - 14, H - 28, BR_DATUM, TFT_WHITE,
+                        LADDER_TEXT, 1, 150, photo);
+            drawFit("next " + nextAlarm, W - 14, H - 6, BR_DATUM, TFT_CYAN,
+                    LADDER_TEXT, 1, 150, photo);
+        }
 
         // ---- top: optional message -----------------------------------------
-        repaintStrip(jpeg, len, 0, 40);
+        if (jpeg) repaintStrip(jpeg, len, 0, 42);
         if (dueMessage.length())
-            halo(tft, dueMessage, W / 2, 12, 4, TC_DATUM, TFT_YELLOW, 1);
+            drawFit(dueMessage, W / 2, 6, TC_DATUM, TFT_YELLOW,
+                    LADDER_TEXT, 1, W - 20, photo);
     } else {
         // Only the minute advanced → repaint just the clock digits, no flicker.
         drawHeroTime(jpeg, len, timeStr);
     }
 
-    pDate = date; pCaption = caption; pNext = nextAlarm; pMsg = dueMessage; pAmpm = ampm;
+    pDate = date; pCaption = caption; pNext = nextAlarm; pNextDate = nextAlarmDate;
+    pMsg = dueMessage; pAmpm = ampm;
 }
 
 void showRinging(const String& alarmTime, const String& caption) {
+    const int W = tft.width();
     tft.fillScreen(TFT_RED);
-    tft.setTextColor(TFT_WHITE, TFT_RED);
-    tft.setTextDatum(MC_DATUM);
-    tft.drawString(alarmTime, tft.width() / 2, 90, 7);
+    Bg bg{nullptr, 0, TFT_RED};
+    drawFit(alarmTime, W / 2, 78, MC_DATUM, TFT_WHITE,
+            LADDER_BIG, 2, W - 20, bg);
     if (caption.length())
-        tft.drawString(caption, tft.width() / 2, 150, 4);
-    tft.drawString("hold button = stop", tft.width() / 2, 200, 2);
-    tft.drawString("press = snooze 9 min", tft.width() / 2, 222, 2);
+        drawFit(caption, W / 2, 138, MC_DATUM, TFT_WHITE,
+                LADDER_BIG, 2, W - 24, bg);
+    drawFit("hold button = stop", W / 2, 196, MC_DATUM, TFT_WHITE,
+            LADDER_TEXT, 1, W - 24, bg);
+    drawFit("press = snooze 9 min", W / 2, 222, MC_DATUM, TFT_WHITE,
+            LADDER_TEXT, 1, W - 24, bg);
 }
 
 } // namespace DisplayUI

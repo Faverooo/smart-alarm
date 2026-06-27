@@ -17,9 +17,9 @@ namespace DisplayUI {
     bool drawPhoto(const uint8_t* jpeg, size_t len);
 
     // iOS-lock-screen style overlay: the photo stays clear in the background;
-    // the clock/date/caption float over it in the lower-left with an outline
-    // halo for legibility (no solid bars). `jpeg` may be null (no program) → the
-    // text strips fall back to black.
+    // the clock/date/caption float over it in the lower-left with a light drop
+    // shadow for legibility (no solid bars). `jpeg` may be null (no program) →
+    // the text strips fall back to black.
     //
     // A plain minute tick repaints ONLY the hero clock (composited off-screen in
     // a small sprite → no flicker, the rest of the photo is untouched). Pass
@@ -27,10 +27,15 @@ namespace DisplayUI {
     // the background was redrawn (new photo, ringing/OTA screen restored). The
     // call also promotes itself to a full repaint automatically when the date,
     // AM/PM, caption, next-alarm or message text changes.
+    //
+    // `nextAlarm` is the "HH:MM" time and `nextAlarmDate` a friendly day label
+    // ("Today" / "Tomorrow" / "Thu 26 Jun"); the date is drawn above the time in
+    // the bottom-right corner. Both empty when no alarm is upcoming.
     void drawClockOverlay(const uint8_t* jpeg, size_t len,
                           const struct tm& now, const String& timeFormat,
                           const String& caption, const String& nextAlarm,
-                          const String& dueMessage, bool full = true);
+                          const String& nextAlarmDate, const String& dueMessage,
+                          bool full = true);
 
     // Full-screen ringing overlay shown while an alarm is firing.
     void showRinging(const String& alarmTime, const String& caption);

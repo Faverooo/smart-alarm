@@ -218,8 +218,7 @@ in `firmware/platformio.ini` (TFT) and `firmware/src/config.h` (everything else)
 
 ```bash
 cd firmware
-pio run -t upload      # the firmware
-pio run -t uploadfs    # the clock font (optional but pretty)
+pio run -t upload      # build + flash (all fonts are baked into the binary)
 ```
 
 ### First boot

@@ -42,10 +42,6 @@ struct Message {
 };
 
 struct SyncData {
-    String          serverTime;
-    String          timezone;
-    String          revision;
-    String          deviceName;
     DisplaySettings settings;
     std::vector<Alarm>   alarms;
     Program              program;

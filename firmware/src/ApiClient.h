@@ -11,7 +11,6 @@ struct PairInfo {
     bool   ok = false;
     bool   alreadyOwned = false;  // server returned 409: device claimed, needs "forget" first
     String pairingCode;
-    String name;
     long   expiresIn = 0;
 };
 
@@ -19,7 +18,6 @@ struct PairStatus {
     bool ok = false;          // request itself succeeded
     bool paired = false;      // a human has claimed at least one role
     bool unauthorized = false;// token rejected (window expired / pruned)
-    String name;
     String pairingCode;
     long   expiresIn = 0;
 };

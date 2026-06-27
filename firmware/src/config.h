@@ -14,7 +14,7 @@
 
 // Cloudflare rotates edge certs, so pinning a leaf is fragile. For a hobby
 // device on your own LAN we skip cert validation by default. Set this to 0 and
-// fill ROOT_CA in config.cpp to validate the chain properly.
+// fill ROOT_CA in ApiClient.cpp to validate the chain properly.
 #define USE_INSECURE_TLS 1
 
 // ---- Timekeeping -------------------------------------------------------------

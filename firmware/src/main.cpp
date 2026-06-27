@@ -192,9 +192,12 @@ static String dueMessageFor(const struct tm& now) {
     return i >= 0 ? data.messages[i].text : String();
 }
 
-// Time label of the alarm that will actually fire soonest from `now`,
-// honouring one-time dates and recurring weekdays. "" when none is upcoming.
-static String nextAlarmLabel(const struct tm& now) {
+// The alarm that will actually fire soonest from `now`, honouring one-time
+// dates and recurring weekdays. `.time` is "HH:MM" and `.date` a friendly day
+// label ("Today" / "Tomorrow" / "Thu 26 Jun"); both "" when none is upcoming.
+struct NextAlarm { String time; String date; };
+
+static NextAlarm nextAlarmInfo(const struct tm& now) {
     long best = LONG_MAX;
     String label;
     int curMin = now.tm_hour * 60 + now.tm_min;
@@ -228,7 +231,23 @@ static String nextAlarmLabel(const struct tm& now) {
 
         if (delta < best) { best = delta; label = a.time; }
     }
-    return label;
+
+    NextAlarm out;
+    if (best == LONG_MAX || !label.length()) return out;   // nothing upcoming
+    out.time = label;
+
+    // Calendar day the alarm falls on = now + `best` minutes, as a friendly label.
+    struct tm tnow = now; tnow.tm_isdst = -1;
+    time_t target = mktime(&tnow) + (time_t)best * 60;
+    struct tm tt;  localtime_r(&target, &tt);
+
+    struct tm a0 = tt;  a0.tm_hour = 0; a0.tm_min = 0; a0.tm_sec = 0; a0.tm_isdst = -1;
+    struct tm n0 = now; n0.tm_hour = 0; n0.tm_min = 0; n0.tm_sec = 0; n0.tm_isdst = -1;
+    long days = lround(difftime(mktime(&a0), mktime(&n0)) / 86400.0);
+    if      (days <= 0) out.date = "Today";
+    else if (days == 1) out.date = "Tomorrow";
+    else { char b[24]; strftime(b, sizeof(b), "%a %e %b", &tt); out.date = b; }
+    return out;
 }
 
 // Does this alarm fire at `now` (to the minute)?
@@ -246,6 +265,20 @@ static bool alarmMatches(const Alarm& a, const struct tm& now) {
     return false;
 }
 
+// Intermittent alarm tone: three short beeps, a pause, repeat — driven from
+// loop() every iteration while ringing (millis()-paced, non-blocking). The
+// pattern is on/off/on/off/on/<long off>, so even-numbered steps sound.
+static unsigned long beepAt = 0;
+static int           beepStep = 0;
+static void serviceAlarmSound() {
+    static const uint16_t dur[6] = {140, 140, 140, 140, 140, 650};
+    if (millis() - beepAt < dur[beepStep]) return;
+    beepAt = millis();
+    beepStep = (beepStep + 1) % 6;
+    if (beepStep % 2 == 0) DisplayUI::buzzerOn(data.settings.volume);
+    else                   DisplayUI::buzzerOff();
+}
+
 static void startRinging(const Alarm& a) {
     ringing = true;
     ringingTime          = a.time;
@@ -253,6 +286,7 @@ static void startRinging(const Alarm& a) {
     ringingScheduledDate = a.scheduledDate;
     ringingCaption       = data.program.photos.empty() ? "" : "Wake up!";
     DisplayUI::showRinging(ringingTime, ringingCaption);
+    beepStep = 0; beepAt = millis();         // start the beep pattern on its first beep
     DisplayUI::buzzerOn(data.settings.volume);
     DisplayUI::setBrightness(100);
 }
@@ -488,6 +522,7 @@ void loop() {
     }
 
     handleButton();
+    if (ringing) serviceAlarmSound();        // beep-beep-beep pattern while ringing
 
     // Snooze re-fire. Signed-difference compare so it survives millis() rollover
     // (~49.7 days) — this device is meant to stay on for months.
@@ -532,7 +567,14 @@ void loop() {
 
                 if (!ringing) {
                     int idx = pickPhotoIndex(now);
-                    renderPhoto(idx);        // full repaint only when the photo changes
+                    if (idx < 0) {
+                        // No program associated → drop any cached photo so the
+                        // overlay paints a plain black background.
+                        if (photoJpeg) { free(photoJpeg); photoJpeg = nullptr; photoJpegLen = 0; }
+                        if (shownPhotoHash.length()) { shownPhotoHash = ""; lastClockMinute = -1; }
+                    } else {
+                        renderPhoto(idx);    // full repaint only when the photo changes
+                    }
 
                     // The clock updates in place via a small sprite (no flicker);
                     // a full overlay repaint happens only when the minute tick is
@@ -544,9 +586,10 @@ void loop() {
                         lastClockMinute = now.tm_min;
                         String caption = (idx >= 0 && idx < (int)data.program.photos.size())
                                        ? data.program.photos[idx].caption : "";
+                        NextAlarm na = nextAlarmInfo(now);
                         DisplayUI::drawClockOverlay(photoJpeg, photoJpegLen, now,
                             data.settings.timeFormat, caption,
-                            nextAlarmLabel(now), dueMessageFor(now), full);
+                            na.time, na.date, dueMessageFor(now), full);
                     }
                 }
             }
