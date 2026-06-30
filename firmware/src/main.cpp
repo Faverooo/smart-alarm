@@ -218,7 +218,10 @@ static NextAlarm nextAlarmInfo(const struct tm& now) {
             if (days < 0 || (days == 0 && t <= curMin)) continue;   // already passed
             delta = days * 1440L + (t - curMin);
         } else {                                  // recurring: next listed weekday
-            for (int off = 0; off < 7; off++) {
+            // off goes to 7 (not 6) so a once-weekly alarm whose only day is
+            // today still resolves to the SAME weekday next week once today's
+            // slot has passed — otherwise it would never be found.
+            for (int off = 0; off <= 7; off++) {
                 if (off == 0 && t <= curMin) continue;   // today's slot already passed
                 int wd = (now.tm_wday + off) % 7;
                 bool listed = false;
@@ -335,7 +338,7 @@ static void handleButton() {
 
     if (down && !btnDown) {                  // press started → debounce-confirm
         delay(25);
-        if (digitalRead(BTN_PIN) != LOW) return;
+        if (digitalRead(BTN_PIN) != LOW) return; // false alarm, ignore
         btnDown = true; btnLongFired = false; btnDownAt = millis();
         return;
     }
