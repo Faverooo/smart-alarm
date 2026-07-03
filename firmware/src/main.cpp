@@ -561,18 +561,21 @@ void loop() {
                 if (firedMinute != String(key)) { firedMinute = key; firedIds = ""; }
                 for (auto& a : data.alarms) {
                     if (!alarmMatches(a, now)) continue;
-                    String tag = "," + String(a.id) + ",";
-                    if (firedIds.indexOf(tag) >= 0) continue;   // already had its turn
+                    String tag = "," + String(a.id) + ","; // Check with commas to avoid substring collisions (e.g. 12 vs 112).
+                    if (firedIds.indexOf(tag) >= 0) continue;   // if tag is it fired => already had its turn
                     firedIds += tag;
                     startRinging(a);
                     break;
                 }
 
+                // if there isn't a new alarm ringing, update the clock overlay (and photo if needed)
                 if (!ringing) {
                     int idx = pickPhotoIndex(now);
                     if (idx < 0) {
                         // No program associated → drop any cached photo so the
                         // overlay paints a plain black background.
+                        // This checks are done the first time the program is empty, then the last clock minutes is "real" and the photo 
+                        // is not drawn anymore, so the overlay will be drawn on a black background.
                         if (photoJpeg) { free(photoJpeg); photoJpeg = nullptr; photoJpegLen = 0; }
                         if (shownPhotoHash.length()) { shownPhotoHash = ""; lastClockMinute = -1; }
                     } else {
@@ -585,7 +588,7 @@ void loop() {
                     // — drawClockOverlay itself escalates to full when the date,
                     // caption, next-alarm or message changed.
                     if (now.tm_min != lastClockMinute) {
-                        bool full = (lastClockMinute == -1);
+                        bool full = (lastClockMinute == -1); // force a full overlay repaint when the photo changed, or the minute tick is the first one after boot.
                         lastClockMinute = now.tm_min;
                         String caption = (idx >= 0 && idx < (int)data.program.photos.size())
                                        ? data.program.photos[idx].caption : "";
