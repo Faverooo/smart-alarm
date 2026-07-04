@@ -45,6 +45,10 @@ return [
     ],
 
     // Target resolution for photos rendered for the device's TFT.
+    // CAUTION: the firmware caps photo downloads at 64KB (JpegBuffer::CAP in
+    // firmware/src/ApiClient.cpp). 320×240 q80 renders stay well under it
+    // (~15-30KB); raising the resolution much beyond that can push renders
+    // over the cap, making every photo download fail on the device.
     'device_display' => [
         'width'  => env('DEVICE_DISPLAY_WIDTH', 320),
         'height' => env('DEVICE_DISPLAY_HEIGHT', 240),

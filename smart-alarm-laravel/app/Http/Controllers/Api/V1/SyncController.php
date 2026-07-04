@@ -62,7 +62,11 @@ class SyncController extends Controller
     {
         return $device->alarms()
             ->where('is_active', true)
+            // `id` tiebreaker: two alarms sharing one HH:MM would otherwise
+            // come back in DB-dependent order, churning the ETag for nothing
+            // (and making the limit() cut non-deterministic past MAX_ALARMS).
             ->orderBy('time')
+            ->orderBy('id')
             ->limit(self::MAX_ALARMS)
             ->get(['id', 'time', 'scheduled_date', 'days_of_week', 'is_active'])
             ->map(fn ($a) => [
@@ -117,6 +121,7 @@ class SyncController extends Controller
             // messages (oldest-first) would block newer ones forever.
             ->where('scheduled_at', '>=', now()->subWeek())
             ->orderBy('scheduled_at')
+            ->orderBy('id')          // deterministic order on ties → stable ETag
             ->limit(self::MAX_MESSAGES)
             ->get(['id', 'text_content', 'scheduled_at'])
             ->map(fn ($m) => [

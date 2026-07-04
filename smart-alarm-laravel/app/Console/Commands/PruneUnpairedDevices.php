@@ -16,8 +16,7 @@ class PruneUnpairedDevices extends Command
         $stale = Device::stalePairing()->get();
 
         foreach ($stale as $device) {
-            $device->tokens()->delete(); // revoke the device's API token
-            $device->delete();
+            $device->delete();   // the model's `deleted` event revokes its API token
         }
 
         $this->info("Pruned {$stale->count()} unpaired device(s).");

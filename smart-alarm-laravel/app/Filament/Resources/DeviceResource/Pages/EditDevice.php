@@ -12,6 +12,22 @@ class EditDevice extends EditRecord
 {
     protected static string $resource = DeviceResource::class;
 
+    // The active program belongs to the photo manager. If an admin clears or
+    // replaces `photo_user_id` from this form, the old manager's program must
+    // not keep showing on the device (the "forget" action and the API path
+    // already null it) — unless a new program was picked in the same save.
+    // The non-admin form never submits `photo_user_id`, so this is a no-op there.
+    protected function mutateFormDataBeforeSave(array $data): array
+    {
+        if (array_key_exists('photo_user_id', $data)
+            && $data['photo_user_id'] != $this->record->photo_user_id
+            && ($data['program_id'] ?? null) == $this->record->program_id) {
+            $data['program_id'] = null;
+        }
+
+        return $data;
+    }
+
     protected function getHeaderActions(): array
     {
         $user = auth()->user();

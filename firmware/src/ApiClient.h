@@ -64,6 +64,9 @@ public:
 private:
     String _token;
     String _etag;                       // last /sync ETag we hold a payload for
-    bool   beginRequest(class HTTPClient& http, const String& url);
+    // withAuth=false skips the bearer token — for downloads from hosts other
+    // than our API origin (e.g. a CDN-hosted firmware .bin), which must never
+    // see the device credential.
+    bool   beginRequest(class HTTPClient& http, const String& url, bool withAuth = true);
     bool   simplePost(const String& url);
 };

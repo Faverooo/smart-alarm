@@ -333,11 +333,14 @@ static unsigned long btnRawChangedAt = 0;   // when the raw reading last flipped
 static void shortPressIdle() {
     // Mark the message currently ON SCREEN read (the latest due one — the same
     // index dueMessageFor shows, so display and acknowledge always agree).
+    // Clear the local state only if the server ACCEPTED the read: clearing on
+    // a failed call (WiFi down) would lose the ack — the server keeps it
+    // unread and it silently reappears at the next payload change. Failing
+    // leaves the message on screen, so the press can simply be repeated.
     struct tm now;
     if (!getLocalTm(now)) return;
     int i = dueMessageIndex(now);
-    if (i >= 0) {
-        api.messageRead(data.messages[i].id);
+    if (i >= 0 && api.messageRead(data.messages[i].id)) {
         data.messages[i].scheduledAt = "";   // locally no longer due
         lastClockMinute = -1;                // refresh the overlay now
     }
@@ -581,7 +584,11 @@ void setup() {
         }
 
         // No fresh payload (offline boot / failed first sync) → fall back to
-        // the NVS snapshot so the clock runs and alarms still ring.
+        // the NVS snapshot. NOTE: with no RTC on board, cached alarms only
+        // actually ring once the clock is known — i.e. after one successful
+        // NTP or /time fix. "Server down but internet up" recovers fully;
+        // a completely offline boot shows the cache but can't match alarms
+        // until connectivity (and thus time) returns.
         if (state == State::Running && !haveData && loadSyncCache()) haveData = true;
     } else {
         enterPairing();
@@ -619,7 +626,10 @@ void loop() {
             lastTime = ms;
             struct tm t; if (!getLocalTm(t)) clockFromServer();
         }
-        if (!ringing && ms - lastFwCheck >= FIRMWARE_INTERVAL_MS) {
+        // !snoozePending too: a successful OTA reboots, and the snooze re-fire
+        // lives in RAM only — updating mid-snooze would silently lose the
+        // re-wake. The update just waits for the next 6h check.
+        if (!ringing && !snoozePending && ms - lastFwCheck >= FIRMWARE_INTERVAL_MS) {
             lastFwCheck = ms;
             checkFirmwareUpdate();           // never reboots mid-alarm (guarded above)
         }

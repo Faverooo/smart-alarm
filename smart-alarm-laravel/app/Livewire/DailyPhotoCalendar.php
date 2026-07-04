@@ -177,12 +177,12 @@ class DailyPhotoCalendar extends Component implements HasActions, HasForms
     public function setDayAction(): Action
     {
         return Action::make('setDay')
-            ->modalHeading(fn (array $arguments) => 'Photo for '.Carbon::parse($arguments['date'])->isoFormat('dddd D MMMM YYYY'))
+            ->modalHeading(fn (array $arguments) => 'Photo for '.Carbon::parse($this->validDate($arguments))->isoFormat('dddd D MMMM YYYY'))
             ->modalWidth('lg')
             ->modalSubmitActionLabel('Save photo')
             ->fillForm(fn (array $arguments) => [
                 'source'  => 'upload',
-                'caption' => optional($this->photosByDate()->get($arguments['date']))->caption,
+                'caption' => optional($this->photosByDate()->get($this->validDate($arguments)))->caption,
             ])
             ->schema([
                 Forms\Components\ToggleButtons::make('source')
@@ -263,14 +263,16 @@ class DailyPhotoCalendar extends Component implements HasActions, HasForms
     {
         return Action::make('removeDay')
             ->requiresConfirmation()
-            ->modalHeading(fn (array $arguments) => 'Remove photo for '.Carbon::parse($arguments['date'])->isoFormat('D MMMM YYYY').'?')
+            ->modalHeading(fn (array $arguments) => 'Remove photo for '.Carbon::parse($this->validDate($arguments))->isoFormat('D MMMM YYYY').'?')
             ->modalSubmitActionLabel('Remove')
             ->action(fn (array $arguments) => $this->detachDate($this->validDate($arguments)));
     }
 
     // The `date` action argument comes from the browser (wire:click), so never
     // trust it: anything but a plain Y-m-d would end up raw in Carbon::parse
-    // and in the pivot insert.
+    // and in the pivot insert. Applied in EVERY closure that touches
+    // $arguments['date'] (modalHeading/fillForm included — they run at modal
+    // mount, before any form validation).
     protected function validDate(array $arguments): string
     {
         $date = (string) ($arguments['date'] ?? '');

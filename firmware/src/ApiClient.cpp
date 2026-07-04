@@ -29,14 +29,22 @@ void ApiClient::begin() {
 }
 
 // Common request setup: target URL, JSON Accept, bearer token, sane timeouts.
-bool ApiClient::beginRequest(HTTPClient& http, const String& url) {
+bool ApiClient::beginRequest(HTTPClient& http, const String& url, bool withAuth) {
     if (WiFi.status() != WL_CONNECTED) return false;
     if (!http.begin(tls, url)) return false;
     http.setTimeout(15000);
     http.setReuse(false);
     http.addHeader("Accept", "application/json");
-    if (_token.length()) http.addHeader("Authorization", "Bearer " + _token);
+    if (withAuth && _token.length()) http.addHeader("Authorization", "Bearer " + _token);
     return true;
+}
+
+// scheme://host[:port] prefix of a URL ("" if it has no scheme).
+static String urlOrigin(const String& url) {
+    int schemeEnd = url.indexOf("://");
+    if (schemeEnd < 0) return "";
+    int pathStart = url.indexOf('/', schemeEnd + 3);
+    return pathStart < 0 ? url : url.substring(0, pathStart);
 }
 
 // ---- pairing -----------------------------------------------------------------
@@ -232,6 +240,8 @@ public:
     // Sanity cap. The server renders 320x240 q80 JPEGs (~15-30KB), so 64KB is
     // generous — and it bounds the worst-case heap spike: the previous photo
     // stays resident while the replacement downloads (2x CAP peak).
+    // Coupled to the server's DEVICE_DISPLAY_* config (services.device_display):
+    // raise this too if the render resolution ever grows past ~480p.
     static const size_t CAP = 64 * 1024;
     uint8_t* buf = nullptr;
     size_t   len = 0, alloc = 0;
@@ -311,7 +321,12 @@ bool ApiClient::checkFirmware(String& urlOut, String& md5Out) {
 
 bool ApiClient::otaUpdate(const String& url, const String& md5) {
     HTTPClient http;
-    if (!beginRequest(http, url)) return false;
+    // The .bin URL is server-configured and may point at a third-party host
+    // (CDN, GitHub releases): only present the device token to our own API
+    // origin, never to anyone else. Hosts differing only by case still match.
+    String apiOrigin = urlOrigin(String(API_BASE));
+    bool sameOrigin = apiOrigin.length() && urlOrigin(url).equalsIgnoreCase(apiOrigin);
+    if (!beginRequest(http, url, sameOrigin)) return false;
 
     int code = http.GET();
     if (code != 200) { http.end(); return false; }
