@@ -68,9 +68,12 @@ class ImageController extends Controller
             $disk->put($cachePath, $jpeg);
         }
 
+        // `private`: these photos are personal and the route is token-gated —
+        // `public` would explicitly allow shared caches (e.g. a Cloudflare
+        // "cache everything" rule) to serve them to requests WITHOUT a token.
         return response($jpeg, 200, [
             'Content-Type'  => 'image/jpeg',
-            'Cache-Control' => 'public, max-age=86400',
+            'Cache-Control' => 'private, max-age=86400',
             'Content-Length' => (string) strlen($jpeg),
         ])->setEtag($etag);
     }

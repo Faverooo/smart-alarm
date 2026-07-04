@@ -36,6 +36,13 @@ class Device extends Model
                 $device->pairing_code ??= static::generatePairingCode();
             }
         });
+
+        // Every deletion path (panel forget/delete, bulk delete, prune) must
+        // also revoke the device's Sanctum token — the morph relation doesn't
+        // cascade, so without this the personal_access_tokens rows leak.
+        static::deleted(function (Device $device) {
+            $device->tokens()->delete();
+        });
     }
 
     // Considered "online" if it phoned home within this many minutes.

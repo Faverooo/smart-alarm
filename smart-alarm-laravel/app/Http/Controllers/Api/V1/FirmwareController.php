@@ -29,6 +29,9 @@ class FirmwareController extends Controller
         return response()->json([
             'version'          => $latest,
             'url'              => $available ? $url : null,
+            // md5sum of the .bin (FIRMWARE_MD5) — the device refuses to flash
+            // a download that doesn't match it.
+            'md5'              => $available ? config('services.firmware.md5') : null,
             'update_available' => $available,
             'mandatory'        => $available && (bool) config('services.firmware.mandatory', false),
         ]);

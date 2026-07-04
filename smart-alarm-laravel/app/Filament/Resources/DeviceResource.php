@@ -350,6 +350,9 @@ class DeviceResource extends Resource
 
                         if ($record->photo_user_id === $user->id) {
                             $updates['photo_user_id'] = null;
+                            // Their program (and its photos) must not keep
+                            // showing on a device they no longer manage.
+                            $updates['program_id'] = null;
                         }
 
                         $record->update($updates);

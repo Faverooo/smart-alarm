@@ -4,7 +4,7 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
-#include <HTTPUpdate.h>
+#include <Update.h>
 #include <ArduinoJson.h>
 
 // One TLS client reused across requests (HTTPS setup is expensive on ESP32).
@@ -229,7 +229,10 @@ bool ApiClient::fetchTime(String& serverTimeOut, String& tzOut) {
 // dropping Content-Length) is decoded for us — reading the raw stream wouldn't be.
 class JpegBuffer : public Stream {
 public:
-    static const size_t CAP = 200 * 1024;   // sanity cap
+    // Sanity cap. The server renders 320x240 q80 JPEGs (~15-30KB), so 64KB is
+    // generous — and it bounds the worst-case heap spike: the previous photo
+    // stays resident while the replacement downloads (2x CAP peak).
+    static const size_t CAP = 64 * 1024;
     uint8_t* buf = nullptr;
     size_t   len = 0, alloc = 0;
     bool     failed = false;
@@ -286,8 +289,8 @@ bool ApiClient::fetchPhoto(const String& renderUrl, uint8_t** buf, size_t* len) 
 
 // ---- OTA -----------------------------------------------------------------------
 
-bool ApiClient::checkFirmware(String& urlOut) {
-    urlOut = "";
+bool ApiClient::checkFirmware(String& urlOut, String& md5Out) {
+    urlOut = ""; md5Out = "";
     HTTPClient http;
     if (!beginRequest(http, String(API_BASE) + "/firmware/latest?current=" FIRMWARE_VERSION))
         return false;
@@ -299,17 +302,46 @@ bool ApiClient::checkFirmware(String& urlOut) {
         if (!deserializeJson(doc, body)) {
             available = doc["update_available"] | false;
             urlOut    = String((const char*)(doc["url"] | ""));
+            md5Out    = String((const char*)(doc["md5"] | ""));
         }
     }
     http.end();
     return available && urlOut.length() > 0;
 }
 
-void ApiClient::otaUpdate(const String& url) {
-    // On success the ESP reboots into the new firmware; on failure we return
-    // and the caller carries on with the running build.
-    httpUpdate.rebootOnUpdate(true);
-    httpUpdate.update(tls, url);
+bool ApiClient::otaUpdate(const String& url, const String& md5) {
+    HTTPClient http;
+    if (!beginRequest(http, url)) return false;
+
+    int code = http.GET();
+    if (code != 200) { http.end(); return false; }
+
+    // Update needs the exact image size up front, so a Content-Length is
+    // required (the stock HTTPUpdate has the same constraint — a chunked
+    // response can't be flashed safely from the raw stream).
+    int len = http.getSize();
+    if (len <= 0) { http.end(); return false; }
+
+    if (!Update.begin((size_t) len)) { http.end(); return false; }
+    if (md5.length()) {
+        // A published-but-malformed hash is a server misconfiguration: fail
+        // loudly rather than silently flashing an unverified image.
+        if (md5.length() != 32 || !Update.setMD5(md5.c_str())) {
+            Update.abort(); http.end(); return false;
+        }
+    }
+
+    size_t written = Update.writeStream(http.getStream());
+    http.end();
+
+    if (written != (size_t) len || !Update.end()) {
+        Serial.printf("[ota] failed: %s\n", Update.errorString());
+        Update.abort();
+        return false;
+    }
+
+    ESP.restart();      // boot into the new build
+    return true;        // not reached
 }
 
 // ---- telemetry & interactions ------------------------------------------------

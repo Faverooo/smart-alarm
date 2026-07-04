@@ -263,11 +263,16 @@ Once a device is deployed you never need the USB cable again:
 2. Copy `.pio/build/esp32dev/firmware.bin` to
    `smart-alarm-laravel/public/firmware/smart-alarm-0.1.1.bin` on the server.
 3. In the server's `.env`:
-   `FIRMWARE_VERSION=0.1.1` and
-   `FIRMWARE_URL=https://alarm.example.com/firmware/smart-alarm-0.1.1.bin`,
+   `FIRMWARE_VERSION=0.1.1`,
+   `FIRMWARE_URL=https://alarm.example.com/firmware/smart-alarm-0.1.1.bin` and
+   `FIRMWARE_MD5=<output of md5sum firmware.bin>`,
    then `php artisan config:cache`.
 4. Devices check every 6 hours (and a minute after every reboot), download, flash
    and restart on their own. The panel shows the new version once it's done.
+
+`FIRMWARE_MD5` is optional but recommended: the device refuses to flash a
+download whose checksum doesn't match, so a truncated or corrupted binary can
+never brick it.
 
 Use a new filename for every version, and never reuse a version number.
 

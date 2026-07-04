@@ -229,7 +229,7 @@ class DailyPhotoCalendar extends Component implements HasActions, HasForms
                     ->requiredIf('source', 'existing'),
             ])
             ->action(function (array $data, array $arguments): void {
-                $date = $arguments['date'];
+                $date = $this->validDate($arguments);
 
                 // One photo per day — clear whatever is currently pinned there
                 $this->detachDate($date);
@@ -265,7 +265,19 @@ class DailyPhotoCalendar extends Component implements HasActions, HasForms
             ->requiresConfirmation()
             ->modalHeading(fn (array $arguments) => 'Remove photo for '.Carbon::parse($arguments['date'])->isoFormat('D MMMM YYYY').'?')
             ->modalSubmitActionLabel('Remove')
-            ->action(fn (array $arguments) => $this->detachDate($arguments['date']));
+            ->action(fn (array $arguments) => $this->detachDate($this->validDate($arguments)));
+    }
+
+    // The `date` action argument comes from the browser (wire:click), so never
+    // trust it: anything but a plain Y-m-d would end up raw in Carbon::parse
+    // and in the pivot insert.
+    protected function validDate(array $arguments): string
+    {
+        $date = (string) ($arguments['date'] ?? '');
+
+        abort_unless(preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) === 1, 422);
+
+        return $date;
     }
 
     // Remove only the pivot row for THIS day. Detaching by photo id would wipe the

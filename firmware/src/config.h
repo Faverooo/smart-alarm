@@ -36,6 +36,7 @@
 #define FIRMWARE_INTERVAL_MS 21600000UL // GET /firmware/latest (~6h)
 #define PAIR_POLL_MS         5000UL     // GET /pair/status while waiting to be claimed
 #define PHOTO_RETRY_MS       10000UL    // back-off between failed photo downloads
+#define WIFI_RETRY_MS        10000UL    // back-off between WiFi.reconnect() attempts
 
 // ---- Capacities (bounded so parsing can't blow the heap) ---------------------
 #define MAX_ALARMS   16

@@ -8,6 +8,7 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <WiFiManager.h>
+#include <ArduinoJson.h>
 #include <time.h>
 #include <limits.h>
 
@@ -54,6 +55,10 @@ static String firedMinute;         // the "YYYY-MM-DDTHH:MM" the list belongs to
 static String firedIds;            // ",id," list of alarms already fired in it
 static bool   snoozePending = false;
 static unsigned long snoozeAt = 0; // when the snoozed alarm re-fires (millis)
+// Which alarm the pending snooze belongs to. Kept SEPARATE from ringingAlarmId:
+// another alarm may ring (and overwrite the ringing state) while a snooze is
+// pending, and the re-fire must still target the alarm that was snoozed.
+static long   snoozedAlarmId = 0;
 
 static const char* WEEKDAYS[] = {"Sunday","Monday","Tuesday","Wednesday",
                                  "Thursday","Friday","Saturday"};
@@ -299,6 +304,7 @@ static void stopRinging(bool snooze) {
     ringing = false;
     if (snooze) {
         snoozePending = true;
+        snoozedAlarmId = ringingAlarmId;
         snoozeAt = millis() + (unsigned long)SNOOZE_MINUTES * 60000UL;
     } else if (ringingScheduledDate.length()) {
         api.alarmDismissed(ringingAlarmId);  // one-time → deactivate server-side
@@ -314,11 +320,15 @@ static void stopRinging(bool snooze) {
 //   ringing → short press = snooze; held LONG_PRESS_MS = dismiss (fires while
 //             still held, so "hold until it stops ringing" just works)
 //   idle    → short press (on release) = mark the on-screen message read
-// Debounce: confirm the press 25ms later; ignore sub-25ms "presses" on release.
+// Debounce: a raw state change only counts once it has been stable for 25ms —
+// tracked by timestamp, never by delay(), so the loop (buzzer pacing, alarm
+// matching) is never blocked.
 
 static bool          btnDown = false;       // debounced "currently held"
 static unsigned long btnDownAt = 0;
 static bool          btnLongFired = false;  // long-press action already taken
+static bool          btnRaw = false;        // last raw reading
+static unsigned long btnRawChangedAt = 0;   // when the raw reading last flipped
 
 static void shortPressIdle() {
     // Mark the message currently ON SCREEN read (the latest due one — the same
@@ -334,24 +344,30 @@ static void shortPressIdle() {
 }
 
 static void handleButton() {
-    bool down = digitalRead(BTN_PIN) == LOW;
+    unsigned long ms = millis();
+    bool raw = digitalRead(BTN_PIN) == LOW;
 
-    if (down && !btnDown) {                  // press started → debounce-confirm
-        delay(25);
-        if (digitalRead(BTN_PIN) != LOW) return; // false alarm, ignore
-        btnDown = true; btnLongFired = false; btnDownAt = millis();
+    if (raw != btnRaw) {                     // raw flip → restart the settle timer
+        btnRaw = raw;
+        btnRawChangedAt = ms;
+        return;
+    }
+    if (ms - btnRawChangedAt < 25) return;   // still settling (bounce)
+
+    if (btnRaw && !btnDown) {                // debounced press started
+        btnDown = true; btnLongFired = false; btnDownAt = ms;
         return;
     }
 
-    if (down && btnDown) {                   // still held → check the long press
-        if (!btnLongFired && ringing && millis() - btnDownAt >= LONG_PRESS_MS) {
+    if (btnRaw && btnDown) {                 // still held → check the long press
+        if (!btnLongFired && ringing && ms - btnDownAt >= LONG_PRESS_MS) {
             btnLongFired = true;
             stopRinging(false);              // dismiss the moment the hold qualifies
         }
         return;
     }
 
-    if (!down && btnDown) {                  // released
+    if (!btnRaw && btnDown) {                // debounced release
         btnDown = false;
         if (btnLongFired) return;            // the hold already did its job
         if (ringing) stopRinging(true);      // short press while ringing → snooze
@@ -361,10 +377,72 @@ static void handleButton() {
 
 // ---- sync --------------------------------------------------------------------
 
+// Persist a compact alarms+settings snapshot to NVS so a reboot with the
+// server unreachable still rings on schedule. Photos/messages are left out:
+// they need the network anyway, and NVS entries are capped at ~4KB.
+static void saveSyncCache() {
+    JsonDocument doc;
+    JsonObject s = doc["settings"].to<JsonObject>();
+    s["brightness"]       = data.settings.brightness;
+    s["night_brightness"] = data.settings.nightBrightness;
+    s["night_start"]      = data.settings.nightStart;
+    s["night_end"]        = data.settings.nightEnd;
+    s["volume"]           = data.settings.volume;
+    s["time_format"]      = data.settings.timeFormat;
+
+    JsonArray arr = doc["alarms"].to<JsonArray>();
+    for (auto& a : data.alarms) {
+        JsonObject o = arr.add<JsonObject>();
+        o["id"]   = a.id;
+        o["time"] = a.time;
+        if (a.scheduledDate.length()) o["date"] = a.scheduledDate;
+        JsonArray d = o["days"].to<JsonArray>();
+        for (auto& dn : a.days) d.add(dn);
+    }
+
+    String out;
+    serializeJson(doc, out);
+    Storage::setSyncCache(out);
+}
+
+// Boot fallback: restore the last-synced alarms + settings. Returns true when
+// a cache was loaded (→ haveData, so the clock runs and alarms ring offline).
+static bool loadSyncCache() {
+    String json = Storage::syncCache();
+    if (!json.length()) return false;
+
+    JsonDocument doc;
+    if (deserializeJson(doc, json)) return false;
+
+    JsonObject s = doc["settings"];
+    if (!s.isNull()) {
+        data.settings.brightness      = s["brightness"]       | 80;
+        data.settings.nightBrightness = s["night_brightness"] | 10;
+        data.settings.nightStart      = String((const char*)(s["night_start"] | "22:00"));
+        data.settings.nightEnd        = String((const char*)(s["night_end"]   | "07:00"));
+        data.settings.volume          = s["volume"]           | 70;
+        data.settings.timeFormat      = String((const char*)(s["time_format"] | "24"));
+    }
+
+    data.alarms.clear();
+    for (JsonObject a : doc["alarms"].as<JsonArray>()) {
+        if (data.alarms.size() >= MAX_ALARMS) break;
+        Alarm al;
+        al.id            = a["id"] | 0L;
+        al.time          = String((const char*)(a["time"] | ""));
+        al.scheduledDate = String((const char*)(a["date"] | ""));
+        for (JsonVariant d : a["days"].as<JsonArray>())
+            al.days.push_back(String((const char*)(d | "")));
+        data.alarms.push_back(al);
+    }
+    return true;
+}
+
 static void doSync() {
     SyncResult r = api.sync(data);
     if (r == SyncResult::Updated) {
         haveData = true;
+        saveSyncCache();
         // No need to clear shownPhotoHash: renderPhoto compares per-photo
         // hashes, so an unrelated change (message read, settings tweak)
         // doesn't force a pointless re-download of the same photo.
@@ -418,19 +496,25 @@ static void pollPairing() {
         bool codeChanged = ps.pairingCode.length() && ps.pairingCode != pairingCode;
         if (ps.pairingCode.length()) pairingCode = ps.pairingCode;
         pairingExpiresIn = ps.expiresIn;
-        // Only redraw when the code changes to avoid the fillScreen flicker every poll.
-        if (codeChanged) DisplayUI::showPairing(pairingCode, deviceMac, pairingExpiresIn);
+        // Redraw when the code changes, or once a minute so the "expires in"
+        // countdown stays honest — not every poll (fillScreen flicker).
+        static long shownExpiryMin = -1;
+        long expiryMin = pairingExpiresIn > 0 ? pairingExpiresIn / 60 : -1;
+        if (codeChanged || expiryMin != shownExpiryMin) {
+            shownExpiryMin = expiryMin;
+            DisplayUI::showPairing(pairingCode, deviceMac, pairingExpiresIn);
+        }
     }
 }
 
 // ---- OTA ----------------------------------------------------------------------
 
 static void checkFirmwareUpdate() {
-    String url;
-    if (!api.checkFirmware(url)) return;
+    String url, md5;
+    if (!api.checkFirmware(url, md5)) return;
 
     DisplayUI::showBooting("Updating firmware...");
-    api.otaUpdate(url);                  // reboots into the new build on success
+    api.otaUpdate(url, md5);             // reboots into the new build on success
 
     // Still here → the update failed; restore the normal screen and carry on.
     if (photoJpeg) DisplayUI::drawPhoto(photoJpeg, photoJpegLen);
@@ -484,11 +568,21 @@ void setup() {
             state = State::Running;
             DisplayUI::showBooting("Syncing...");
             doSync();
+        } else if (!ps.ok && !ps.unauthorized) {
+            // Server unreachable at boot. We hold a token, so odds are we're
+            // still paired: run on the cached alarms instead of camping on the
+            // pairing screen. If we're actually unpaired, the first successful
+            // /sync answers 401 → token cleared → reboot into pairing.
+            state = State::Running;
         } else {
             if (ps.unauthorized) Storage::clearToken();   // pruned → fresh pair/init
             if (ps.ok) { pairingCode = ps.pairingCode; pairingExpiresIn = ps.expiresIn; }
             enterPairing();
         }
+
+        // No fresh payload (offline boot / failed first sync) → fall back to
+        // the NVS snapshot so the clock runs and alarms still ring.
+        if (state == State::Running && !haveData && loadSyncCache()) haveData = true;
     } else {
         enterPairing();
     }
@@ -500,28 +594,35 @@ void setup() {
 void loop() {
     unsigned long ms = millis();
 
-    if (WiFi.status() != WL_CONNECTED) {
+    // WiFi reconnection is NON-blocking: the device is first and foremost an
+    // alarm clock, so everything local (alarm matching, button, buzzer, clock
+    // overlay) must keep running on cached data even with the network down.
+    // Only the network calls below are gated on `online`.
+    bool online = WiFi.status() == WL_CONNECTED;
+    static unsigned long lastWifiAttempt = 0;
+    if (!online && ms - lastWifiAttempt >= WIFI_RETRY_MS) {
+        lastWifiAttempt = ms;
         WiFi.reconnect();
-        delay(1000);
-        return;
     }
 
     if (state == State::Pairing) {
-        if (ms - lastPairPoll >= PAIR_POLL_MS) { lastPairPoll = ms; pollPairing(); }
+        if (online && ms - lastPairPoll >= PAIR_POLL_MS) { lastPairPoll = ms; pollPairing(); }
         delay(50);
         return;
     }
 
     // ---- RUNNING ----
-    if (ms - lastSync   >= SYNC_INTERVAL_MS)   { lastSync = ms;   doSync(); }
-    if (ms - lastStatus >= STATUS_INTERVAL_MS) { lastStatus = ms; api.postStatus(); }
-    if (ms - lastTime   >= TIME_INTERVAL_MS)   {
-        lastTime = ms;
-        struct tm t; if (!getLocalTm(t)) clockFromServer();
-    }
-    if (!ringing && ms - lastFwCheck >= FIRMWARE_INTERVAL_MS) {
-        lastFwCheck = ms;
-        checkFirmwareUpdate();               // never reboots mid-alarm (guarded above)
+    if (online) {
+        if (ms - lastSync   >= SYNC_INTERVAL_MS)   { lastSync = ms;   doSync(); }
+        if (ms - lastStatus >= STATUS_INTERVAL_MS) { lastStatus = ms; api.postStatus(); }
+        if (ms - lastTime   >= TIME_INTERVAL_MS)   {
+            lastTime = ms;
+            struct tm t; if (!getLocalTm(t)) clockFromServer();
+        }
+        if (!ringing && ms - lastFwCheck >= FIRMWARE_INTERVAL_MS) {
+            lastFwCheck = ms;
+            checkFirmwareUpdate();           // never reboots mid-alarm (guarded above)
+        }
     }
 
     handleButton();
@@ -535,7 +636,7 @@ void loop() {
         // been deleted or disabled from the panel during the snooze (/sync
         // only ships active alarms, so absence here means "don't ring").
         for (auto& a : data.alarms) {
-            if (a.id == ringingAlarmId) { startRinging(a); break; }
+            if (a.id == snoozedAlarmId) { startRinging(a); break; }
         }
     }
 
@@ -578,7 +679,7 @@ void loop() {
                         // is not drawn anymore, so the overlay will be drawn on a black background.
                         if (photoJpeg) { free(photoJpeg); photoJpeg = nullptr; photoJpegLen = 0; }
                         if (shownPhotoHash.length()) { shownPhotoHash = ""; lastClockMinute = -1; }
-                    } else {
+                    } else if (online) {
                         renderPhoto(idx);    // full repaint only when the photo changes
                     }
 

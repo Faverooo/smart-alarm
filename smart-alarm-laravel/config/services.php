@@ -40,6 +40,7 @@ return [
     'firmware' => [
         'version'   => env('FIRMWARE_VERSION'),       // e.g. "1.4.0"; null = no OTA configured
         'url'       => env('FIRMWARE_URL'),           // absolute URL to the .bin
+        'md5'       => env('FIRMWARE_MD5'),           // md5sum of the .bin — the device verifies it before flashing
         'mandatory' => env('FIRMWARE_MANDATORY', false),
     ],
 

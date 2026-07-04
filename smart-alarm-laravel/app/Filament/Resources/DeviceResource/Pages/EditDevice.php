@@ -3,10 +3,10 @@
 namespace App\Filament\Resources\DeviceResource\Pages;
 
 use App\Filament\Resources\DeviceResource;
+use App\Models\Device;
 use Filament\Actions;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
-use Illuminate\Support\Str;
 
 class EditDevice extends EditRecord
 {
@@ -32,7 +32,9 @@ class EditDevice extends EditRecord
                 ->modalHeading('Generate a new pairing code?')
                 ->modalDescription('The old code will stop working immediately.')
                 ->action(function (): void {
-                    $code = strtoupper(Str::random(6));
+                    // Same generator as pair/init: 6 digits, guaranteed unique
+                    // across devices (claimRole looks devices up by code alone).
+                    $code = Device::generatePairingCode();
                     $this->record->update(['pairing_code' => $code]);
                     $this->refreshFormData(['pairing_code']);
 

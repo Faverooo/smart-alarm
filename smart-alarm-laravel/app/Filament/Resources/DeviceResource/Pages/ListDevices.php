@@ -8,6 +8,7 @@ use Filament\Actions;
 use Filament\Forms;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
+use Illuminate\Support\Facades\RateLimiter;
 
 class ListDevices extends ListRecords
 {
@@ -76,9 +77,26 @@ class ListDevices extends ListRecords
      */
     private function claimRole(string $code, string $role, ?string $name = null, bool $alsoAlarm = false): void
     {
+        // Codes are only 6 digits, so cap the guessing rate: 10 failed claims
+        // per user per 5 minutes. Cleared on success so honest typos don't
+        // lock anyone out for long.
+        $throttleKey = 'claim-device:'.auth()->id();
+
+        if (RateLimiter::tooManyAttempts($throttleKey, 10)) {
+            Notification::make()
+                ->title('Too many attempts')
+                ->body('Please wait a few minutes before trying another code.')
+                ->danger()
+                ->send();
+
+            return;
+        }
+
         $device = Device::where('pairing_code', strtoupper(trim($code)))->first();
 
         if (! $device) {
+            RateLimiter::hit($throttleKey, 300);
+
             Notification::make()
                 ->title('Invalid pairing code')
                 ->body('No device found with that code. Check the code on the device screen.')
@@ -87,6 +105,8 @@ class ListDevices extends ListRecords
 
             return;
         }
+
+        RateLimiter::clear($throttleKey);
 
         // The 1-hour window only gates a device that nobody has claimed yet.
         if (! $device->isOwned() && ! $device->isClaimable()) {

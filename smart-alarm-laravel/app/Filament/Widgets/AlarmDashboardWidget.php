@@ -44,6 +44,9 @@ class AlarmDashboardWidget extends StatsOverviewWidget
             ->where('is_active', true)
             ->whereNull('scheduled_date')
             ->whereJsonContains('days_of_week', $todayName)
+            // Only alarms still ahead of us today — otherwise an already-fired
+            // morning alarm would show as "next" all day long.
+            ->where('time', '>=', $now->format('H:i:s'))
             ->orderBy('time')
             ->first();
 

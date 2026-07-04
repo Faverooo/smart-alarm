@@ -82,10 +82,13 @@ class SyncController extends Controller
             return null;
         }
 
+        // Explicit ORDER BY: without it the DB may return photos in a
+        // different order between syncs, which would churn the ETag and
+        // shuffle the rotation sequence on the device.
         $photos = match ($program->type) {
-            'fixed'    => $program->photos()->limit(1)->get(),
+            'fixed'    => $program->photos()->orderBy('photo_program.id')->limit(1)->get(),
             'daily'    => collect([$this->todaysPhoto($program)])->filter(),
-            'rotation' => $program->photos()->limit(Program::MAX_PHOTOS)->get(),
+            'rotation' => $program->photos()->orderBy('photo_program.id')->limit(Program::MAX_PHOTOS)->get(),
             default    => collect(),
         };
 
@@ -101,8 +104,8 @@ class SyncController extends Controller
     {
         $today = now()->toDateString();
 
-        return $program->photos()->wherePivot('scheduled_for', $today)->first()
-            ?? $program->photos()->wherePivotNull('scheduled_for')->first();
+        return $program->photos()->wherePivot('scheduled_for', $today)->orderBy('photo_program.id')->first()
+            ?? $program->photos()->wherePivotNull('scheduled_for')->orderBy('photo_program.id')->first();
     }
 
     private function messages(Device $device): array
@@ -110,6 +113,9 @@ class SyncController extends Controller
         return $device->messages()
             ->where('is_read', false)
             ->where('scheduled_at', '<=', now()->addDay())
+            // Lower bound: without it, MAX_MESSAGES stale never-acknowledged
+            // messages (oldest-first) would block newer ones forever.
+            ->where('scheduled_at', '>=', now()->subWeek())
             ->orderBy('scheduled_at')
             ->limit(self::MAX_MESSAGES)
             ->get(['id', 'text_content', 'scheduled_at'])

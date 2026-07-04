@@ -47,8 +47,13 @@ public:
     bool       fetchPhoto(const String& renderUrl, uint8_t** buf, size_t* len);
 
     // --- OTA ---
-    bool checkFirmware(String& urlOut); // true + url when an update is published
-    void otaUpdate(const String& url);  // flashes + reboots on success; returns on failure
+    // true + url (and the .bin's MD5, when the server publishes one) when an
+    // update is available.
+    bool checkFirmware(String& urlOut, String& md5Out);
+    // Downloads and flashes the image, verifying its MD5 first when given one
+    // (rejects truncated/corrupted/foreign binaries). Reboots on success;
+    // returns false on any failure and the running build carries on.
+    bool otaUpdate(const String& url, const String& md5);
 
     // --- telemetry & interaction callbacks ---
     bool postStatus();
