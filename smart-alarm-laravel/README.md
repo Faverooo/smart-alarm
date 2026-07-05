@@ -1,6 +1,6 @@
 # Smart Alarm — web panel & API
 
-The Laravel 11 + Filament 3 backend of the [Smart Alarm](../README.md) project:
+The Laravel 11 + Filament 5 backend of the [Smart Alarm](../README.md) project:
 the web panel where photos, messages, alarms and devices are managed, and the
 REST API the ESP32 syncs against.
 

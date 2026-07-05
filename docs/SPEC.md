@@ -1,3 +1,14 @@
+> ⚠️ **Documento storico — bozza di progettazione iniziale (v2.0), non lo stato attuale del progetto.**
+> Diverse scelte qui descritte sono cambiate durante lo sviluppo: gli orari sono
+> salvati in **local time** (non UTC, vedi il "Design fondamentale" in
+> `docs/COME_FUNZIONA.md` §5), il dispositivo finale ha **un solo pulsante**
+> (non un componente 1NO/1NC con toggle schermo), e il reset di fabbrica scatta
+> tenendolo premuto **all'accensione** (non con un hold di 10s da acceso). Per
+> l'architettura e il comportamento **effettivi**, vedi `docs/IMPLEMENTATION_GUIDE.md`
+> (contratto API + stato delle fasi) e le guide `docs/COME_FUNZIONA.md` /
+> `docs/COME_FUNZIONA_FIRMWARE.md`. Questo file resta solo come archivio storico
+> della progettazione originale.
+
 # 📖 Documento di Specifica: Progetto "Smart Alarm Clock IoT" (SaaS) v2.0
 
 ## 1. Panoramica del Progetto

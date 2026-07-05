@@ -10,6 +10,7 @@ use Filament\Pages;
 use Filament\Panel;
 use Filament\PanelProvider;
 use Filament\Support\Colors\Color;
+use Filament\View\PanelsRenderHook;
 use Filament\Widgets;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
 use Illuminate\Cookie\Middleware\EncryptCookies;
@@ -34,6 +35,12 @@ class AdminPanelProvider extends PanelProvider
             ->brandLogo(asset('images/logotext.png'))
             ->brandLogoHeight('3rem')
             ->favicon(asset('images/logo.png'))
+            ->renderHook(
+                PanelsRenderHook::HEAD_END,
+                fn (): string => '<link rel="apple-touch-icon" href="' . e(asset('images/logo.png')) . '">'
+                    . '<link rel="manifest" href="' . e(asset('manifest.json')) . '">'
+                    . '<meta name="theme-color" content="#f59e0b">',
+            )
             ->viteTheme('resources/css/filament/admin/theme.css')
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\\Filament\\Resources')
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\\Filament\\Pages')

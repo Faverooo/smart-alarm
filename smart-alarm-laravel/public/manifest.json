@@ -1,0 +1,16 @@
+{
+    "name": "Smart Alarm",
+    "short_name": "Smart Alarm",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#ffffff",
+    "theme_color": "#f59e0b",
+    "icons": [
+        {
+            "src": "/images/logo.png",
+            "sizes": "455x456",
+            "type": "image/png",
+            "purpose": "any maskable"
+        }
+    ]
+}

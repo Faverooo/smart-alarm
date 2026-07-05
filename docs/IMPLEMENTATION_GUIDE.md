@@ -9,7 +9,7 @@
 ## 0. System overview
 
 A bedside **smart alarm clock**: an **ESP32 + 3.2" TFT (320×240)** device that
-shows photos/messages and rings alarms. A **Laravel 11 + Filament 3** backend
+shows photos/messages and rings alarms. A **Laravel 11 + Filament 5** backend
 (running on a **Raspberry Pi**, exposed via **Cloudflare Tunnel**) lets people
 manage it from a browser. One device is shared by two roles ("two-key" model):
 
@@ -615,22 +615,29 @@ local — compare directly to the ESP's local clock.
 
 ## Phase reference / status
 - **Phase 1 (DONE):** Filament backend — resources, role scoping, pairing-code
-  device flow, daily calendar, lightbox, custom theme.
+  device flow, daily calendar, lightbox, custom theme. Upgraded in place to
+  Filament 5 (Schema-based forms, unified `Filament\Actions` namespace).
 - **Phase 2 (DONE):** REST API — pair/init + pair/status (1h window, prune), sync
   (ETag/304, minimal payload, settings), time, device/status (telemetry),
   device/forget (factory reset), photos/{id}/render (TFT-sized JPEG), firmware/latest
-  (OTA), dismiss/read/shown. 17 API tests passing (32 total).
-- **Phase 3 (DEPLOYED 2026-06-08):** live on the Raspberry Pi at
-  **https://smartalarm.faverodev.com** via Cloudflare Tunnel — verified from
-  outside the network (`POST /api/v1/pair/init` → 201 + token/code over HTTPS).
-  Runs PHP 8.3 on the Pi. The §3.0–3.11 runbook reflects what was deployed.
-- **Phase 4 (IN PROGRESS):** ESP32 firmware scaffolded in `firmware/` as a
-  PlatformIO project (ESP32 + ILI9341 320×240). Implements the full §4 flow:
-  WiFiManager provisioning, pair/init + pair/status polling, sync with ETag/304,
-  token-gated photo download + JPEG decode, local-wall-clock alarm matching,
-  buttons (dismiss/snooze/next), telemetry heartbeat, factory reset. Compiles
-  clean under PlatformIO (flash ~88%); NOT yet flashed (no hardware). Open items:
-  TLS root CA (defaults to insecure) and the OTA flash step.
+  (OTA, with optional MD5 verification), dismiss/read/shown. Covered by the
+  automated test suite (57+ tests — see `docs/COME_FUNZIONA.md` §3/§12).
+- **Phase 3 (DONE):** deployed on a Raspberry Pi behind a Cloudflare Tunnel and
+  verified reachable from outside the local network
+  (`POST /api/v1/pair/init` → 201 + token/code over HTTPS). The §3.0–3.11 runbook
+  reflects that deployment; swap `your-domain`/`APP_URL` for your own when you
+  follow it — don't reuse anyone else's hostname.
+- **Phase 4 (DONE):** ESP32 firmware in `firmware/` (PlatformIO, ESP32 +
+  ILI9341 320×240) implements the full §4 flow — WiFiManager provisioning,
+  pair/init + pair/status polling, sync with ETag/304, token-gated photo
+  download + JPEG decode, local-wall-clock alarm matching with an offline NVS
+  fallback cache, the single-button UX (snooze/dismiss/mark read), telemetry
+  heartbeat, factory reset, and self-updating OTA (optional MD5 check). Built,
+  flashed and iterated on real hardware — see the firmware guide
+  (`docs/COME_FUNZIONA_FIRMWARE.md`) for the bugs that hands-on testing found
+  and fixed (alarm de-dupe, buzzer pattern, button timing). TLS still defaults
+  to `USE_INSECURE_TLS=1` (see the main README's Security notes) — fine for a
+  home build, tighten it if you want certificate pinning.
 
 ## Test users (seeded)
 `admin@smartalarm.local` (admin), `marco@smartalarm.local` (alarm),

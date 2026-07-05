@@ -19,16 +19,18 @@ device, matching the backend's design.
 | `platformio.ini` | Board + libs; **TFT_eSPI panel/pins configured here via build flags** |
 | `src/config.h` | Server URL, intervals, the GPIOs we drive (backlight, buzzer, buttons), TZ |
 | `src/types.h` | Structs mirroring the `/sync` payload |
-| `src/Storage.*` | NVS persistence of the device token (the sync ETag is RAM-only, on purpose) |
+| `src/Storage.*` | NVS persistence: the device token, plus a compact alarms+settings snapshot so the device keeps ringing on schedule after a reboot even if the server is unreachable (the sync ETag itself is RAM-only, on purpose — see the firmware guide) |
 | `src/ApiClient.*` | All HTTP: pair/init, pair/status, sync (ETag/304), time, status, photo, callbacks |
 | `src/DisplayUI.*` | TFT drawing, JPEG decode, backlight PWM, buzzer |
 | `src/main.cpp` | State machine: Boot → WiFi → Pairing → Running; clock + alarm loop |
 
 ## Wiring (defaults — change in `platformio.ini` / `config.h`)
 **TFT (SPI), in `platformio.ini`:** MISO 19, MOSI 23, SCLK 18, CS 15, DC 2, RST 4.
-**Driven in `config.h`:** backlight `BL_PIN` 21 (PWM), buzzer 25, and the single
-button `BTN_PIN` 32 (`INPUT_PULLUP`, wired to GND, active-low). Button UX:
-short press = snooze (ringing) / mark message read (idle); hold ~1s = dismiss;
+**Driven in `config.h`:** backlight `BL_PIN` 21 (PWM), buzzer 25, the single
+button `BTN_PIN` 32 (`INPUT_PULLUP`, wired to GND, active-low), and an optional
+button LED `BTN_LED_PIN` 26 (via an NPN transistor, e.g. BC547 — a GPIO can't
+drive an LED directly through it) that lights up while the alarm rings. Button
+UX: short press = snooze (ringing) / mark message read (idle); hold ~1s = dismiss;
 held at power-on = factory reset.
 
 ## Build & flash

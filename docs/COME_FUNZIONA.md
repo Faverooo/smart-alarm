@@ -30,7 +30,7 @@ Due "ruoli" condividono un dispositivo (modello **two-key**):
 | Pezzo | A cosa serve |
 |---|---|
 | **Laravel 11** (PHP 8.2+) | Framework di base: routing, ORM (Eloquent), migrazioni, ecc. |
-| **Filament 3** | Costruisce il pannello di amministrazione (CRUD, form, tabelle) **scrivendo classi PHP**, non HTML. |
+| **Filament 5** | Costruisce il pannello di amministrazione (CRUD, form, tabelle) **scrivendo classi PHP**, non HTML. |
 | **Livewire 3** | Sotto Filament: rende le pagine "reattive" (aggiornamenti senza ricaricare) parlando col server via AJAX. Filament è costruito su Livewire. |
 | **Alpine.js** | Micro-interattività lato browser (modali, toggle). Arriva con Livewire. |
 | **Tailwind CSS** | Le classi di stile (`flex`, `rounded-lg`…). Filament ha un suo tema Tailwind. |
@@ -75,7 +75,7 @@ smart-alarm-laravel/
 │   ├── web.php                    # rotte web (quasi vuoto: il pannello è a root)
 │   ├── api.php                    # rotte API dell'ESP32
 │   └── console.php                # scheduler (prune device + foto orfane)
-└── tests/Feature/                 # test automatici (52+: pagine, API, foto, sync)
+└── tests/Feature/                 # test automatici (57+: pagine, API, foto, sync)
 ```
 
 ---
@@ -94,18 +94,27 @@ widget, e il **tema** (`->viteTheme(...)`). Pensa al panel come "l'app admin".
 Un **Resource** rappresenta UN'entità del DB e ne genera tutto il CRUD. Esempio:
 `AlarmResource` gestisce la tabella `alarms`. Un Resource ha tre metodi chiave:
 
-- **`form(Form $form)`** → descrive il modulo di creazione/modifica con dei
-  *componenti di form* (`TextInput`, `Select`, `Toggle`, `DateTimePicker`…).
+- **`form(Schema $schema)`** → descrive il modulo di creazione/modifica con dei
+  *componenti di form* (`TextInput`, `Select`, `Toggle`, `DateTimePicker`…),
+  tipicamente raggruppati dentro `Schemas\Components\Section::make(...)`.
+  (In Filament 3/4 questo metodo si chiamava `form(Form $form): Form`; dalla v4/v5
+  il "contenitore" del form è diventato un concetto più generale, lo `Schema`,
+  condiviso anche da altre parti del pannello — da qui il nuovo nome.)
 - **`table(Table $table)`** → descrive la tabella elenco con delle *colonne*
-  (`TextColumn`, `IconColumn`, `ImageColumn`/`ViewColumn`), filtri e azioni.
+  (`TextColumn`, `IconColumn`, `ImageColumn`/`ViewColumn`), filtri e azioni
+  (`->recordActions([...])` per le azioni di riga, `->toolbarActions([...])`
+  per quelle bulk — si chiamavano `->actions()`/`->bulkActions()` prima della v5).
 - **`getPages()`** → le pagine del Resource: `index` (List), `create`, `edit`.
 
 Esempio mentale (da `AlarmResource.php`):
 ```php
-Forms\Components\TimePicker::make('time')   // un campo orario nel form
-    ->label('Alarm Time')
-    ->seconds(false);                        // niente secondi
-Tables\Columns\IconColumn::make('is_active') // una colonna con icona ✓/✗
+Schemas\Components\Section::make('Schedule')       // raggruppa i campi in una card
+    ->schema([
+        Forms\Components\TimePicker::make('time')  // un campo orario nel form
+            ->label('Alarm Time')
+            ->seconds(false),                       // niente secondi
+    ]);
+Tables\Columns\IconColumn::make('is_active')        // una colonna con icona ✓/✗
     ->boolean();
 ```
 Non scrivi HTML: dici "voglio un TimePicker chiamato `time`" e Filament fa il resto.
@@ -137,15 +146,23 @@ DatePicker::make('scheduled_date')
 
 ### 4.5 Actions — bottoni che "fanno qualcosa"
 Un'**Action** è un bottone con (opzionale) un modale/form e una `->action(closure)`
-che esegue codice. Esempio in `DeviceResource` la riga "Become Alarm Manager":
+che esegue codice. Da Filament 5 tutte le Actions (di tabella, header, bulk, dentro
+i form) vivono in un unico namespace `Filament\Actions` — non più sparse tra
+`Tables\Actions`/`Forms\Actions` come nelle versioni precedenti. Esempio in
+`DeviceResource` la riga "Become Alarm Manager":
 ```php
-Tables\Actions\Action::make('becomeAlarmManager')
+use Filament\Actions;
+// ...
+Actions\Action::make('becomeAlarmManager')
     ->requiresConfirmation()
-    ->visible(fn (Device $r) => $r->alarm_user_id === null) // quando appare
-    ->action(fn (Device $r) => $r->update(['alarm_user_id' => auth()->id()]));
+    ->visible(fn (Device $record) => ! auth()->user()->is_admin
+        && $record->photo_user_id === auth()->id()
+        && $record->alarm_user_id === null)              // quando appare
+    ->action(fn (Device $record) => $record->update(['alarm_user_id' => auth()->id()]));
 ```
-Ci sono Actions di tabella (per riga), header actions (in alto), e azioni dentro i
-form. I modali (upload foto, conferme) sono Actions con un `->form([...])`.
+Ci sono Actions di tabella (per riga, in `->recordActions([...])`), header actions
+(in alto), e azioni dentro i form. I modali (upload foto, conferme) sono Actions
+con un `->form([...])`.
 
 ### 4.6 Relation Manager — `Resources/.../RelationManagers/`
 Quando una pagina Edit deve gestire una **relazione**, usi un Relation Manager: è
@@ -264,7 +281,9 @@ Come funziona:
   aggiungere/togliere la foto del giorno (salva sul pivot `scheduled_for`).
 
 È incastonato nel form del ProgramResource (solo per i programmi `daily`) con il
-componente `Forms\Components\Livewire::make(DailyPhotoCalendar::class, ...)`.
+componente `Schemas\Components\Livewire::make(DailyPhotoCalendar::class, fn ($record) => ['program' => $record])`
+(in Filament 3 questo componente stava nel namespace `Forms\Components`; dalla v5
+il form è uno `Schema`, quindi anche i suoi "mattoncini" custom sono in `Schemas\Components`).
 
 **Dettaglio di performance interessante:** `buildCell()` viene chiamata una volta
 per cella (≈35 volte in vista mese) e ognuna chiedeva le foto del programma → ~35
@@ -321,12 +340,23 @@ Queste sono cose scoperte debuggando: ti fanno capire il funzionamento vero.
 
 File: `routes/api.php`, `app/Http/Controllers/Api/V1/`, `app/Providers/AppServiceProvider.php`.
 Questa è la sezione da leggere con calma: tocca autenticazione, caching HTTP e
-sicurezza. Il punto di partenza è `routes/api.php` — 30 righe che raccontano tutto:
+sicurezza. Il punto di partenza è `routes/api.php` — meno di 50 righe (commentate)
+che raccontano tutto:
 
 ```php
 Route::post('pair/init', ...)->middleware('throttle:pair');     // SENZA auth
-Route::middleware(['auth:sanctum', 'throttle:device'])->group(... tutto il resto ...);
+Route::middleware(['auth:sanctum', 'throttle:device'])->group(function () {
+    // pair/status, sync, time, device/status, device/forget,
+    // photos/{id}/render, firmware/latest, alarms/.../dismissed,
+    // messages/.../read, programs/photos/.../shown — tutto il resto.
+});
 ```
+
+Oltre a `/sync` (§9.3, il grosso del traffico) ci sono due endpoint "di contorno"
+con lo stesso schema di autenticazione: `GET /time` (`TimeController`) — un
+orologio leggero da interrogare spesso se l'NTP del device fallisce — e
+`GET /firmware/latest` (`FirmwareController`) — il check OTA, guidato dalle
+variabili `FIRMWARE_VERSION`/`FIRMWARE_URL`/`FIRMWARE_MD5` in `.env`.
 
 ### 9.1 Il token del device: Sanctum su un Model che NON è un utente
 
@@ -515,7 +545,7 @@ Ricetta generale usata in questo progetto, dal meno al più invasivo:
 3. **Actions con form** → qualsiasi flusso modale custom (claim device, upload
    col crop 4:3 — `FileUpload::imageEditor()` con aspect ratio bloccato).
 4. **Componente Livewire incastonato** → quando serve una UI completamente nuova
-   (il calendario, §7): `Forms\Components\Livewire::make(...)` dentro un form
+   (il calendario, §7): `Schemas\Components\Livewire::make(...)` dentro un form
    Filament. Le Filament Actions restano disponibili dentro il componente
    (`InteractsWithActions`), quindi i modali rimangono "gratis".
 5. **Tema Tailwind custom** → quando servono classi che il CSS di Filament non
@@ -538,7 +568,7 @@ npm run dev                  # tema in watch
 # database da zero + dati di prova
 php artisan migrate:fresh --seed
 
-# test (58: pagine Filament, foto, API sync, regressioni)
+# test (57+: pagine Filament, foto, API sync, regressioni)
 php artisan test
 
 # se l'interfaccia "non aggiorna" in dev

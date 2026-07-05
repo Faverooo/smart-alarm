@@ -20,7 +20,7 @@ Numeri che cambiano il modo di programmare rispetto a un server:
 | Flash | 4 MB, ~1.9 MB per slot app | il binario deve starci DUE volte (OTA, §8) |
 | CPU | 240 MHz dual core | TLS e JPEG decode si fanno, ma costano |
 | OS | nessuno (FreeRTOS sotto Arduino, ma per noi: un `loop()`) | niente thread "comodi": tutto è cooperativo |
-| Storage | NVS (key-value su flash) | scritture flash limitate → si persiste il minimo (solo il token) |
+| Storage | NVS (key-value su flash) | scritture flash limitate → si persiste solo il token + un piccolo snapshot di sveglie/settings (§5.5) |
 | PSRAM | **assente** (board `esp32dev` liscia) | niente buffer grandi extra: lo dimostra la sprite dell'orologio (§7.2) |
 
 E il modello di esecuzione Arduino è due funzioni:
@@ -44,7 +44,7 @@ firmware/
 └── src/
     ├── config.h        # TUTTE le costanti: URL server, TZ, pin, intervalli, cap
     ├── types.h         # struct che rispecchiano il payload di /sync
-    ├── Storage.{h,cpp}    # persistenza NVS: SOLO il token (§5.5 spiega perché)
+    ├── Storage.{h,cpp}    # persistenza NVS: il token + uno snapshot sveglie/settings (§5.5)
     ├── ApiClient.{h,cpp}  # tutto l'HTTP verso Laravel
     ├── DisplayUI.{h,cpp}  # disegno su TFT, decode JPEG, buzzer, retroilluminazione
     ├── *Font*.h           # font anti-aliased embedded: NotoSansBold15/36, ClockFont (§7.3)
@@ -103,6 +103,11 @@ BOOT ──►│  WiFi   ├───────────►│ PAIRING  �
   dal pairing. Semplice e impossibile da sbagliare.
 - **Reset di fabbrica**: tieni premuto il pulsante all'accensione → `POST /device/forget`
   (autenticato dal token stesso: solo chi ha il device in mano può farlo).
+- **Device già rivendicato da un altro token** (raro: succede solo se rifletti lo
+  stesso MAC su due firmware, o dopo un reset di fabbrica non andato a buon fine
+  lato server): `pair/init` risponde `409` e il device mostra "Device owned -
+  remove from panel" invece del codice — deve essere rimosso dal pannello prima
+  di poter ripartire.
 
 ### 3.1 Come si collega al WiFi (provisioning + reconnect)
 
@@ -126,10 +131,20 @@ if (!wm.autoConnect(WIFI_PORTAL_NAME)) {   // "SmartAlarm-Setup"
    senza portale.
 3. **Caduta di rete a regime**: nel `loop()` c'è la guardia
    ```cpp
-   if (WiFi.status() != WL_CONNECTED) { WiFi.reconnect(); delay(1000); return; }
+   bool online = WiFi.status() == WL_CONNECTED;
+   if (!online && ms - lastWifiAttempt >= WIFI_RETRY_MS) {   // backoff, non ad ogni giro
+       lastWifiAttempt = ms;
+       WiFi.reconnect();
+   }
    ```
-   il device riprova all'infinito senza bloccare nulla (e senza suonare sveglie
-   "a caso": senza dati aggiornati, vedi §6.1, meglio star fermi).
+   Niente `delay()` e niente `return`: il device riprova al massimo ogni
+   `WIFI_RETRY_MS` (10 s) **senza bloccare nulla**, e tutto ciò che è locale
+   (pulsante, buzzer, calcolo dell'orologio, match delle sveglie) continua a
+   girare anche offline sui dati dell'ultimo sync riuscito — è **solo** la
+   sezione di rete del loop (`doSync`, `postStatus`, il check OTA) a restare
+   ferma finché `online` non torna vero. Coerente con la filosofia del
+   dispositivo: prima di tutto è una sveglia, e deve continuare a suonare
+   anche con WiFi/server giù.
 
 Le credenziali le cambi rifacendo il portale (reset di fabbrica, §9), non
 ricompilando.
@@ -162,6 +177,7 @@ I ritmi (tutti in `config.h`):
 | `lastFwCheck` | 6 h (e 1 min dopo il boot) | check OTA (§8) |
 | `lastSecond` | 1 s | luminosità, **match sveglie**, render foto, overlay orologio |
 | `lastPairPoll` | 5 s | solo in PAIRING: `/pair/status` |
+| `lastWifiAttempt` | 10 s | `WiFi.reconnect()` se il WiFi è caduto (§3.1) |
 
 A fine giro un `delay(20)` modesto tiene il loop reattivo (il pulsante viene letto
 ad ogni giro, ~50 volte al secondo) senza scaldare la CPU inutilmente.
@@ -268,10 +284,29 @@ rete diventerebbe un martellamento di handshake TLS.
 
 ### 5.5 Cosa persiste davvero (`Storage`)
 
-**Solo il token**, in NVS (libreria `Preferences`, namespace `smartalarm`). Tutto
-il resto (payload di sync, ETag, stato sveglie) è ricostruibile dal server al
-primo sync, quindi tenerlo su flash sarebbe solo usura e bug in più. Le
-credenziali WiFi le salva WiFiManager per conto suo.
+Due cose, in NVS (libreria `Preferences`, namespace `smartalarm`):
+
+1. **Il token** — l'identità del device verso il server.
+2. **Uno snapshot compatto di sveglie + settings** (`syncCache()`/`setSyncCache()`),
+   scritto ad ogni sync riuscito e ricaricato in `setup()` se il primo sync del
+   boot fallisce. È un fallback per un caso preciso: il device si riavvia (per un
+   blackout, un OTA, ecc.) mentre il server è irraggiungibile — senza questo
+   snapshot le sveglie (che vivono solo in RAM) sparirebbero fino al prossimo
+   sync riuscito, e una sveglia da comodino non può permetterselo. Il JSON è
+   tenuto piccolo apposta (tetto di ~3900 byte, un solo `String` NVS): niente
+   foto né messaggi, che tanto servono la rete comunque.
+
+Tutto il resto (payload completo di sync, l'**ETag**, che resta RAM-only per il
+motivo spiegato in §5.3) è ricostruibile dal server e non va su flash: tenerlo
+sarebbe solo usura e bug in più. `clearToken()` cancella anche lo snapshot delle
+sveglie insieme al token: un token nuovo è una nuova identità (re-pairing o
+factory reset), e le sveglie del vecchio proprietario non devono continuare a
+suonare per il prossimo. Le credenziali WiFi le salva WiFiManager per conto suo.
+
+Un dettaglio da notare: con lo snapshot ricaricato ma **senza un RTC a bordo**, le
+sveglie in cache possono suonare solo dopo che l'orologio è stato impostato (un
+NTP o un `/time` riusciti) — un boot completamente offline mostra la cache ma non
+può far scattare nulla finché non torna la connettività (e con essa l'ora).
 
 ---
 
@@ -317,11 +352,14 @@ allo stesso orario**: la prima suona, l'utente la spegne, la seconda deve suonar
 *comunque* — e spegnendo la seconda, la prima non deve ripartire. Una sola
 variabile "ultima sveglia" non basta a ricordare entrambe.
 
-**Snooze**: spegne il buzzer e arma `snoozeAt = millis() + 9 min`. Allo scadere,
-la sveglia viene ri-cercata **nei dati correnti** (`data.alarms`) prima di
-risuonare: se nel frattempo è stata disattivata/cancellata dal pannello, lo snooze
-muore in silenzio (i dati del sync sono la verità, non lo stato salvato al
-momento dello snooze).
+**Snooze**: spegne il buzzer e arma `snoozeAt = millis() + 9 min`, ricordando
+**quale** sveglia in `snoozedAlarmId` — una variabile separata da `ringingAlarmId`
+apposta: mentre lo snooze è pending può suonarne (e finire) un'altra, che
+sovrascriverebbe `ringingAlarmId`, ma `snoozedAlarmId` deve sopravvivere intatto
+fino al re-fire. Allo scadere, la sveglia viene ri-cercata **nei dati correnti**
+(`data.alarms`) prima di risuonare: se nel frattempo è stata disattivata/cancellata
+dal pannello, lo snooze muore in silenzio (i dati del sync sono la verità, non lo
+stato salvato al momento dello snooze).
 
 **Dismiss** di una sveglia una-tantum → `POST /alarms/{id}/dismissed` → il server
 la disattiva → al sync successivo sparisce anche localmente.
@@ -438,11 +476,20 @@ ritocco quando cambi `SIZE`.
 - **Retroilluminazione**: PWM via LEDC su `BL_PIN`. La luminosità giorno/notte
   arriva dal pannello via `/sync` e viene applicata ogni secondo
   (`applyBrightness()` → finestra notturna `night_start`/`night_end`).
-- **Buzzer**: di default `BUZZER_ACTIVE=1` → **modulo attivo a 3 pin** con
-  oscillatore proprio: lo si pilota solo HIGH/LOW, niente controllo volume. Se
-  invece monti un buzzer **passivo** (`BUZZER_ACTIVE=0`) il firmware genera un tono
-  ~2,7 kHz in PWM il cui duty "approssima" il volume. In entrambi i casi si accende
-  anche il **LED del pulsante** mentre suona.
+- **Buzzer**: `DisplayUI::buzzerOn()`/`buzzerOff()` pilotano solo l'hardware (il
+  singolo colpo HIGH/LOW o il PWM). Il *pattern* del suono — tre bip brevi e una
+  pausa, in loop — vive un livello più in alto, in `main.cpp::serviceAlarmSound()`,
+  chiamata ad ogni giro di `loop()` mentre `ringing` è vero:
+  ```cpp
+  static const uint16_t dur[6] = {140, 140, 140, 140, 140, 650};  // ms per step
+  // step pari (0,2,4) → buzzerOn(); step dispari (1,3,5, l'ultimo è la pausa lunga) → buzzerOff()
+  ```
+  Di default `BUZZER_ACTIVE=1` → **modulo attivo a 3 pin** con oscillatore
+  proprio: lo si pilota solo HIGH/LOW, niente controllo volume. Se invece monti un
+  buzzer **passivo** (`BUZZER_ACTIVE=0`) il firmware genera un tono ~2,7 kHz in PWM
+  il cui duty "approssima" il volume — in entrambi i casi è sempre
+  `serviceAlarmSound()` a decidere QUANDO accendere/spegnere. Si accende anche il
+  **LED del pulsante** (`BTN_LED_PIN`, via transistor NPN) in sincrono con ogni bip.
 
 ---
 
@@ -454,23 +501,51 @@ La flash è partizionata (`min_spiffs.csv`) con **due slot applicazione** da
 nell'altro, e il bootloader scambia gli slot al riavvio. Se la scrittura fallisce
 a metà → si riavvia nello slot vecchio: l'OTA non può "brickare" il device.
 
-Flusso (`checkFirmwareUpdate()` in `main.cpp`, ogni 6 h + 1 min dopo il boot):
+Flusso (`checkFirmwareUpdate()` in `main.cpp`, ogni 6 h + 1 min dopo il boot,
+implementato in `ApiClient::checkFirmware()`/`otaUpdate()`):
 
 ```
 GET /firmware/latest?current=0.1.0
-  → { update_available: true, url: "https://…/smart-alarm-0.1.1.bin" }
-  → httpUpdate.update(tls, url)     // scarica nello slot inattivo, verifica, REBOOT
+  → { update_available: true, url: "https://…/smart-alarm-0.1.1.bin", md5: "…" }
+  → otaUpdate(url, md5)
 ```
 
-Dettagli che contano:
-- Mai durante una sveglia che suona (guardia `!ringing`).
+`otaUpdate()` **non** usa la libreria di comodo `httpUpdate`/`ESPhttpUpdate`, ma
+pilota a mano la classe `Update` dell'SDK ESP32 — un po' più di codice, ma
+controllo esplicito su ogni passo:
+
+1. `HTTPClient::GET()` sul `.bin`: serve una risposta **non-chunked** con
+   `Content-Length` noto (`http.getSize()`), perché `Update` deve sapere in
+   anticipo quanti byte scrivere.
+2. **Il token NON viaggia sempre**: `beginRequest()` allega
+   `Authorization: Bearer <token>` solo se l'URL del binario è sullo **stesso
+   origin** dell'API (`urlOrigin()` confronta host, case-insensitive). Se pubblichi
+   i `.bin` su un CDN o su GitHub Releases, il device non gli manda il proprio
+   token — solo al tuo backend.
+3. `Update.begin(len)`, poi — **se e solo se** il server ha pubblicato un `md5`
+   non vuoto — `Update.setMD5(md5)`: un MD5 malformato (lunghezza ≠ 32) è
+   trattato come un errore di configurazione del server e abortisce subito,
+   invece di flashare un'immagine non verificata in silenzio. Senza `md5`
+   nella risposta, non c'è verifica del contenuto (solo l'integrità implicita
+   di TCP/TLS).
+4. `Update.writeStream(http.getStream())` scrive nello slot inattivo; `Update.end()`
+   convalida dimensione (e MD5, se impostato). Qualsiasi fallimento →
+   `Update.abort()`, si ritorna `false` e si resta sul firmware attuale — il
+   dispositivo continua a funzionare, ritenterà al prossimo check.
+5. Solo a scrittura riuscita: `ESP.restart()` fa ripartire il bootloader nel
+   nuovo slot.
+
+Altri dettagli che contano:
+- Mai durante una sveglia che suona (guardia `!ringing` in `main.cpp`, insieme a
+  `!snoozePending`: un OTA a metà snooze perderebbe il re-fire, che vive solo in RAM).
 - Il confronto versioni lo fa il SERVER: il device esegue e basta.
 - Se dimentichi di alzare `FIRMWARE_VERSION` in `config.h` prima di pubblicare il
   `.bin`, il device si aggiorna, riferisce la versione vecchia, e si ri-aggiorna
   in loop ogni 6 ore. La versione nel binario E quella sul server devono avanzare
   insieme.
-- Il binario attuale occupa ~60% dello slot: c'è margine, ma tienilo d'occhio
-  (`pio run` stampa la percentuale).
+- Quanto spazio resta nello slot lo stampa `pio run` ad ogni build (percentuale di
+  flash usata) — controllalo prima di ogni release, soprattutto se aggiungi font
+  o librerie.
 
 ---
 

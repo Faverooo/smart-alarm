@@ -8,7 +8,7 @@
 // without editing this file via a build flag in platformio.ini:
 //   -DSERVER_URL='"https://alarm.example.com"'
 #ifndef SERVER_URL
-#define SERVER_URL "https://smartalarm.faverodev.com"
+#define SERVER_URL "https://alarm.example.com"
 #endif
 #define API_BASE   SERVER_URL "/api/v1"
 

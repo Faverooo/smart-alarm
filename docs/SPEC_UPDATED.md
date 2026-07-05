@@ -1,4 +1,14 @@
-Ecco un documento di recap e aggiornamento dettagliato (versione 3.0), che integra il tuo file `SPEC.md` originale con tutta la logica avanzata del database che abbiamo appena costruito. È strutturato in modo da essere la tua "Bibbia" per le prossime fasi di sviluppo e perfetto da passare a Claude Code.
+> ⚠️ **Documento storico — recap di metà progettazione (v3.0), non lo stato attuale del progetto.**
+> È la trascrizione di una conversazione di pianificazione: alcuni dettagli non
+> corrispondono più all'implementazione finale (es. qui si parla di sveglia che si
+> ferma con un click e "niente Snooze in questa versione" — lo snooze c'è, +9 min
+> sul pulsante; il factory reset qui è descritto come hold di 10s e uso di
+> `LittleFS`, mentre nel firmware finale è hold **all'accensione** e la
+> persistenza è su NVS/`Preferences`, non LittleFS). Per l'architettura e il
+> comportamento **effettivi**, vedi `docs/IMPLEMENTATION_GUIDE.md` (contratto API
+> + stato delle fasi) e le guide `docs/COME_FUNZIONA.md` /
+> `docs/COME_FUNZIONA_FIRMWARE.md`. Questo file resta solo come archivio storico
+> della progettazione.
 
 ---
 

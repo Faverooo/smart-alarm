@@ -6,15 +6,16 @@ family member can manage **remotely from their phone**.
 The idea: you build the little clock and give it to someone you love (a parent, a
 grandparent, your partner). From anywhere, you upload photos that appear on their
 nightstand, send short messages to their screen, and — if you want — manage their
-wake-up alarms. The device itself has just three buttons: *dismiss*, *snooze*, *next*.
-No app to install on their side, nothing for them to configure.
+wake-up alarms. The device itself has a single button — a short press snoozes an
+alarm or marks a message read, holding it dismisses the alarm. No app to install
+on their side, nothing for them to configure.
 
 ```
    You (and family), on any phone/PC          The nightstand
    ┌──────────────────────────────┐        ┌─────────────────────┐
    │  Web panel (Laravel+Filament)│ HTTPS  │  ESP32 + 320×240 TFT│
    │  photos · messages · alarms  │◄──────►│  clock + photo +    │
-   │  on a Raspberry Pi or a VPS  │        │  alarm + 3 buttons  │
+   │  on a Raspberry Pi or a VPS  │        │  alarm + 1 button   │
    └──────────────────────────────┘        └─────────────────────┘
 ```
 
@@ -23,9 +24,10 @@ No app to install on their side, nothing for them to configure.
 - 🖼 **Photo programs** — show one fixed photo, rotate through up to 10, or pin a
   *different photo to each day* on a calendar ("photo of the day").
 - 💬 **Messages** — schedule a text that appears on the screen at a chosen time
-  ("Good morning! Doctor at 10:00"). The *next* button marks it read.
+  ("Good morning! Doctor at 10:00"). A short press on the button marks it read.
 - ⏰ **Alarms** — one-time or recurring per weekday, managed from the web. Snooze
-  and dismiss buttons on the device.
+  and dismiss on the device's single button. A compact snapshot is cached on the
+  device, so alarms still ring on schedule even if WiFi/the server is briefly down.
 - 👥 **Two-person model** — a *photo & message manager* and an *alarm manager* can
   be two different accounts (or the same person). Great when an adult child manages
   photos for a parent who manages their own alarms — or vice versa.
@@ -42,9 +44,10 @@ No app to install on their side, nothing for them to configure.
 |---|---|---|
 | ESP32 DevKit (ESP32-WROOM-32) | any common 30/38-pin dev board | €5 |
 | 3.2" or 2.8" ILI9341 SPI TFT, 320×240 | the common red SPI module | €8–12 |
-| Passive buzzer | 2-pin, PWM driven | €1 |
+| Buzzer | active 3-pin module by default (just drive it HIGH/LOW); a 2-pin passive buzzer also works — flip `BUZZER_ACTIVE` to `0` in `config.h` | €1 |
 | 1 momentary push button | snooze / dismiss / mark read | €1 |
 | Breadboard + jumper wires, 5V USB supply | a 3D-printed case is a nice bonus | €3 |
+| *Optional:* LED (+ a BC547 NPN transistor) | lights up while the alarm rings, wired to the button | €1 |
 
 **Server (one of):**
 
@@ -195,15 +198,20 @@ the login page. Log in with the admin account from Step 1.
 | VCC | 3V3 | | Buzzer + | GPIO 25 |
 | GND | GND | | Buzzer − | GND |
 | CS  | GPIO 15 | | Button | GPIO 32 → GND |
-| RESET | GPIO 4 | | | |
+| RESET | GPIO 4 | | Button LED (optional, via transistor) | GPIO 26 |
 | DC  | GPIO 2 | | | |
 | MOSI (SDI) | GPIO 23 | | | |
 | SCK | GPIO 18 | | | |
 | LED (backlight) | GPIO 21 | | | |
 | MISO (SDO) | GPIO 19 | | | |
 
-The button needs no resistor (internal pull-up). Different wiring? Change the pins
-in `firmware/platformio.ini` (TFT) and `firmware/src/config.h` (everything else).
+The button needs no resistor (internal pull-up). The optional LED lights up while
+an alarm rings; drive it through an NPN transistor (e.g. BC547) as a low-side
+switch: LED anode → 3V3 through a current-limiting resistor, LED cathode →
+transistor collector, transistor emitter → GND, transistor base → GPIO 26 through
+a ~1kΩ resistor. Skip it entirely and GPIO 26 just stays unconnected — no
+downside. Different wiring? Change the pins in `firmware/platformio.ini` (TFT) and
+`firmware/src/config.h` (everything else).
 
 ### Flash
 
@@ -302,7 +310,7 @@ Use a new filename for every version, and never reuse a version number.
 ## Repository layout
 
 ```
-smart-alarm-laravel/   The web panel + API (Laravel 11 + Filament 3, SQLite)
+smart-alarm-laravel/   The web panel + API (Laravel 11 + Filament 5, SQLite)
 firmware/              ESP32 firmware (PlatformIO, Arduino framework)
 docs/                  IMPLEMENTATION_GUIDE.md (API contract) + two in-depth
                        code walkthroughs in Italian: COME_FUNZIONA.md (backend)
