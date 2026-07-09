@@ -62,6 +62,29 @@ void setBrightness(int pct) {
     ledcWrite(BL_LEDC_CHANNEL, map(pct, 0, 100, 0, 255));
 }
 
+// ILI9341 power commands. Sending SLPIN stops the panel from driving the pixels
+// (no more static DC bias on the liquid crystals → no image sticking); DISPOFF
+// blanks the output. We kill the backlight first so the DISPOFF transition isn't
+// visible as a flash.
+void displayOff() {
+    setBrightness(0);
+    tft.writecommand(0x28);   // DISPOFF
+    tft.writecommand(0x10);   // SLPIN — controller stops refreshing the panel
+    // Datasheet: after SLPIN wait 120 ms before a SLPOUT is allowed. An alarm can
+    // fire on the very tick brightness hits 0 and immediately call displayOn(), so
+    // pay the full 120 ms here rather than assume the next wake is far off.
+    delay(120);
+}
+
+// Wake the panel. Datasheet: after SLPOUT wait 120 ms before DISPON / drawing.
+// GRAM contents are undefined after sleep, so the caller must repaint the frame.
+// Backlight is left at 0 here — call setBrightness() after to bring it back.
+void displayOn() {
+    tft.writecommand(0x11);   // SLPOUT
+    delay(120);
+    tft.writecommand(0x29);   // DISPON
+}
+
 void buzzerOn(int volumePct) {
     digitalWrite(BTN_LED_PIN, HIGH);
 #if BUZZER_ACTIVE
@@ -99,6 +122,21 @@ static const uint8_t* const LADDER_TEXT[] = { NotoSansBold15 };
 // ---- Hero clock geometry (shared by drawHeroTime + drawClockOverlay) ---------
 static const int CLOCK_X = 16, CLOCK_Y = 162;   // top-left of the big time
 
+// ---- Burn-in pixel shift -----------------------------------------------------
+// A tiny offset added to the whole UI — photo AND overlay together — so no pixel
+// is driven identically for long. Kept small (a few px) so overlay elements stay
+// well inside the strips repaintStrip() clears and the photo's uncovered edge is
+// just a thin black margin. main.cpp cycles it every so often.
+static int gShiftX = 0, gShiftY = 0;
+
+// Set the anti-burn-in offset applied to the whole UI (photo + overlay). The
+// caller must then repaint the frame (drawPhoto + a full drawClockOverlay) so
+// the new offset takes effect. Kept small by convention (a few px).
+void setPixelShift(int dx, int dy) {
+    gShiftX = dx;
+    gShiftY = dy;
+}
+
 // ---- Drop shadow --------------------------------------------------------------
 // One light stamp of the glyphs 1 px down-right in black, then the fill on top.
 // The AA font keeps it soft — a subtle lift off the photo, no halo or box.
@@ -128,8 +166,13 @@ static const uint8_t* fitVlw(String& s, const uint8_t* const* ladder, int n, int
 // needs a clean background to blend its edges against, and ILI9341 read-back is
 // unreliable, so we composite in an off-screen sprite holding the real photo (or
 // solid colour) and blit once — smooth, no flicker, rest of the screen untouched.
+// `minW` forces the composited/erased band to be at least this wide (the text
+// stays left-anchored inside it). Only the left-aligned hero clock uses it, so a
+// shrinking string (12h "12:59" -> "1:00") still clears the wider previous glyphs
+// on the per-minute redraw. 0 (default) = size the band exactly to the text.
 static void shadowText(const String& s, int ax, int ay, uint8_t datum,
-                       uint16_t fill, const uint8_t* font, const Bg& bg) {
+                       uint16_t fill, const uint8_t* font, const Bg& bg,
+                       int minW = 0) {
     if (!s.length()) return;
 
     tft.loadFont(font);
@@ -137,8 +180,9 @@ static void shadowText(const String& s, int ax, int ay, uint8_t datum,
     tft.unloadFont();
     if (tw <= 0 || th <= 0) return;
 
+    const int bandW = tw > minW ? tw : minW;   // erase at least `minW` px wide
     const int padTL = 1, padBR = SHADOW_PAD + 1;
-    const int W = tw + padTL + padBR, H = th + padTL + padBR;
+    const int W = bandW + padTL + padBR, H = th + padTL + padBR;
 
     // datum → screen top-left of the text box (col: 0=L 1=C 2=R, row: 0=T 1=M 2=B).
     int col = datum % 3, row = (datum / 3) % 3;
@@ -158,7 +202,9 @@ static void shadowText(const String& s, int ax, int ay, uint8_t datum,
     }
     if (bg.jpeg && bg.len) {
         g_capture = &spr; g_capX = ox; g_capY = oy;
-        TJpgDec.drawJpg(0, 0, bg.jpeg, bg.len);
+        // Photo is shifted on screen by (gShiftX,gShiftY); decode it at that same
+        // offset so the AA text blends over the correct (shifted) photo pixels.
+        TJpgDec.drawJpg(gShiftX, gShiftY, bg.jpeg, bg.len);
         g_capture = nullptr;
     } else {
         spr.fillSprite(bg.solid);
@@ -230,15 +276,21 @@ void showPairing(const String& code, const String& mac, long secondsLeft) {
 }
 
 bool drawPhoto(const uint8_t* jpeg, size_t len) {
-    return TJpgDec.drawJpg(0, 0, jpeg, len) == JDR_OK;
+    // Drawn at the anti-burn-in offset. The photo is exactly panel-sized, so a
+    // non-zero shift leaves a few-px strip uncovered on one/two edges — clear to
+    // black first so no stale content shows there.
+    if (gShiftX || gShiftY) tft.fillScreen(TFT_BLACK);
+    return TJpgDec.drawJpg(gShiftX, gShiftY, jpeg, len) == JDR_OK;
 }
 
 // Repaint just the strip [0, sy]..[W, sy+sh] from the cached photo (or black),
 // clipped via a viewport so the rest of the screen is left untouched. Using
-// vpDatum=false keeps TJpgDec's pushImage coordinates absolute.
+// vpDatum=false keeps TJpgDec's pushImage coordinates absolute. The photo is
+// drawn at the pixel-shift offset to match drawPhoto(); the ≤few-px uncovered
+// edge only ever falls in the screen margin (no text lives there).
 static void repaintStrip(const uint8_t* jpeg, size_t len, int sy, int sh) {
     tft.setViewport(0, sy, tft.width(), sh, false);
-    if (jpeg && len) TJpgDec.drawJpg(0, 0, jpeg, len);
+    if (jpeg && len) TJpgDec.drawJpg(gShiftX, gShiftY, jpeg, len);
     else             tft.fillRect(0, sy, tft.width(), sh, TFT_BLACK);
     tft.resetViewport();
 }
@@ -255,8 +307,11 @@ static void measureHero(int& w, int& h) {
 // composites in an off-screen sprite, so the per-minute redraw neither flickers
 // nor touches the rest of the photo.
 static void drawHeroTime(const uint8_t* jpeg, size_t len, const String& s) {
-    shadowText(s, CLOCK_X, CLOCK_Y, TL_DATUM, TFT_WHITE, ClockFont,
-               {jpeg, len, TFT_BLACK});
+    // Always erase a full "00:00"-wide band so a per-minute redraw that shrinks
+    // the string (12h "12:59" -> "1:00") leaves no ghost of the wider digits.
+    int cw, ch; measureHero(cw, ch);
+    shadowText(s, CLOCK_X + gShiftX, CLOCK_Y + gShiftY, TL_DATUM, TFT_WHITE, ClockFont,
+               {jpeg, len, TFT_BLACK}, cw);
 }
 
 void drawClockOverlay(const uint8_t* jpeg, size_t len,
@@ -305,35 +360,35 @@ void drawClockOverlay(const uint8_t* jpeg, size_t len,
         int cw, ch; measureHero(cw, ch);
 
         // Date just above the digits.
-        drawFit(date, CLOCK_X + 2, CLOCK_Y - 26, TL_DATUM, TFT_WHITE,
-                LADDER_TEXT, 1, W - 2 * CLOCK_X, photo);
+        drawFit(date, CLOCK_X + 2 + gShiftX, CLOCK_Y - 26 + gShiftY, TL_DATUM,
+                TFT_WHITE, LADDER_TEXT, 1, W - 2 * CLOCK_X, photo);
 
         // Hero clock — 60 px clock face, composited over the photo.
         drawHeroTime(jpeg, len, timeStr);
 
         // AM/PM tag riding to the right of the digits (12h only).
         if (h12)
-            drawFit(ampm, CLOCK_X + cw + 12, CLOCK_Y + ch, BL_DATUM,
-                    TFT_WHITE, LADDER_TEXT, 1, 64, photo);
+            drawFit(ampm, CLOCK_X + cw + 12 + gShiftX, CLOCK_Y + ch + gShiftY,
+                    BL_DATUM, TFT_WHITE, LADDER_TEXT, 1, 64, photo);
 
         // Caption pinned to the bottom-left, aligned with the next-alarm corner.
         if (caption.length())
-            drawFit(caption, CLOCK_X, H - 6, BL_DATUM, TFT_WHITE,
-                    LADDER_TEXT, 1, 168, photo);
+            drawFit(caption, CLOCK_X + gShiftX, H - 6 + gShiftY, BL_DATUM,
+                    TFT_WHITE, LADDER_TEXT, 1, 168, photo);
 
         // Next alarm in the bottom-right: date line stacked above the time line.
         if (nextAlarm.length()) {
             if (nextAlarmDate.length())
-                drawFit(nextAlarmDate, W - 14, H - 28, BR_DATUM, TFT_WHITE,
-                        LADDER_TEXT, 1, 150, photo);
-            drawFit("next " + nextAlarm, W - 14, H - 6, BR_DATUM, TFT_CYAN,
-                    LADDER_TEXT, 1, 150, photo);
+                drawFit(nextAlarmDate, W - 14 + gShiftX, H - 28 + gShiftY, BR_DATUM,
+                        TFT_WHITE, LADDER_TEXT, 1, 150, photo);
+            drawFit("next " + nextAlarm, W - 14 + gShiftX, H - 6 + gShiftY, BR_DATUM,
+                    TFT_CYAN, LADDER_TEXT, 1, 150, photo);
         }
 
         // ---- top: optional message -----------------------------------------
         if (jpeg) repaintStrip(jpeg, len, 0, 42);
         if (dueMessage.length())
-            drawFit(dueMessage, W / 2, 6, TC_DATUM, TFT_YELLOW,
+            drawFit(dueMessage, W / 2 + gShiftX, 6 + gShiftY, TC_DATUM, TFT_YELLOW,
                     LADDER_TEXT, 1, W - 20, photo);
     } else {
         // Only the minute advanced → repaint just the clock digits, no flicker.

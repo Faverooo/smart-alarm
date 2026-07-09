@@ -43,6 +43,21 @@ namespace DisplayUI {
     // Backlight brightness 0..100 (mapped to PWM duty).
     void setBrightness(int pct);
 
+    // Real panel power-down / wake. Unlike setBrightness(0) — which only kills the
+    // LED backlight while the controller keeps driving the pixels (a static DC bias
+    // that causes LCD image sticking over hours/days) — these send the ILI9341
+    // SLPIN/SLPOUT + DISPOFF/DISPON commands so the panel actually stops driving.
+    // Use them for night/idle instead of dimming to 0. displayOn() leaves the
+    // backlight off (call setBrightness after) and GRAM may be cleared, so force a
+    // full repaint of the current frame afterwards.
+    void displayOff();
+    void displayOn();
+
+    // Anti burn-in: shift the whole UI (photo + overlay) by a few px. After
+    // changing it, repaint the frame (drawPhoto + a full drawClockOverlay). The
+    // photo is panel-sized so a non-zero shift leaves a small black edge.
+    void setPixelShift(int dx, int dy);
+
     // Buzzer control for the alarm (volume 0..100).
     void buzzerOn(int volumePct);
     void buzzerOff();

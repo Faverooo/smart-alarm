@@ -28,7 +28,17 @@ static bool      haveData = false;
 // Timers
 static unsigned long lastSync = 0, lastTime = 0, lastStatus = 0,
                      lastPairPoll = 0, lastSecond = 0, lastRotate = 0,
-                     lastFwCheck = 0;
+                     lastFwCheck = 0, lastShift = 0;
+
+// Anti burn-in: the UI orbits through these small offsets, one step per
+// PIXEL_SHIFT_INTERVAL_MS, so no pixel is driven identically for long.
+static const int8_t SHIFT_PATTERN[][2] = {
+    { 0,  0}, { PIXEL_SHIFT_AMPLITUDE,  0}, { PIXEL_SHIFT_AMPLITUDE,  PIXEL_SHIFT_AMPLITUDE},
+    { 0,  PIXEL_SHIFT_AMPLITUDE}, {-PIXEL_SHIFT_AMPLITUDE,  PIXEL_SHIFT_AMPLITUDE},
+    {-PIXEL_SHIFT_AMPLITUDE,  0}, {-PIXEL_SHIFT_AMPLITUDE, -PIXEL_SHIFT_AMPLITUDE},
+    { 0, -PIXEL_SHIFT_AMPLITUDE}, { PIXEL_SHIFT_AMPLITUDE, -PIXEL_SHIFT_AMPLITUDE},
+};
+static uint8_t shiftIdx = 0;
 
 // Photo cache (current frame only — re-fetched when its hash changes). The JPEG
 // bytes are kept resident so the clock overlay can repaint behind its text
@@ -171,9 +181,30 @@ static bool inNightWindow(const struct tm& now) {
                     : (cur >= s || cur < e);     // wraps midnight
 }
 
+// Tracks whether the panel is in real sleep (SLPIN) vs merely dimmed.
+static bool displayAsleep = false;
+
 static void applyBrightness(const struct tm& now) {
-    DisplayUI::setBrightness(inNightWindow(now) ? data.settings.nightBrightness
-                                                : data.settings.brightness);
+    int pct = inNightWindow(now) ? data.settings.nightBrightness
+                                 : data.settings.brightness;
+
+    // A requested brightness of 0 means "off" — put the panel into real sleep so
+    // the controller stops driving the pixels. Dimming the backlight to 0 alone
+    // leaves a static DC bias on the LCD and causes image sticking over time.
+    if (pct <= 0) {
+        if (!displayAsleep) { DisplayUI::displayOff(); displayAsleep = true; }
+        return;
+    }
+
+    if (displayAsleep) {
+        DisplayUI::displayOn();
+        displayAsleep = false;
+        // GRAM is undefined after sleep: repaint the cached photo and force a full
+        // overlay redraw on the next tick.
+        if (photoJpeg) DisplayUI::drawPhoto(photoJpeg, photoJpegLen);
+        lastClockMinute = -1;
+    }
+    DisplayUI::setBrightness(pct);
 }
 
 // ---- alarms ------------------------------------------------------------------
@@ -293,6 +324,9 @@ static void startRinging(const Alarm& a) {
     ringingAlarmId       = a.id;
     ringingScheduledDate = a.scheduledDate;
     ringingCaption       = data.program.photos.empty() ? "" : "Wake up!";
+    // An alarm may fire while the panel is asleep (night window / brightness 0):
+    // wake it before drawing or the ringing screen would go to a blank panel.
+    if (displayAsleep) { DisplayUI::displayOn(); displayAsleep = false; }
     DisplayUI::showRinging(ringingTime, ringingCaption);
     beepStep = 0; beepAt = millis();         // start the beep pattern on its first beep
     DisplayUI::buzzerOn(data.settings.volume);
@@ -655,7 +689,10 @@ void loop() {
         lastSecond = ms;
         struct tm now;
         if (haveData && getLocalTm(now)) {
-            applyBrightness(now);
+            // Don't touch brightness/sleep while ringing: startRinging() already
+            // woke the panel and set full brightness, and a 0/night brightness
+            // here would black out (or dim) the alarm screen every tick.
+            if (!ringing) applyBrightness(now);
 
             if (!ringing) {
                 // Rotation advance by interval_minutes.
@@ -679,8 +716,20 @@ void loop() {
                     break;
                 }
 
-                // if there isn't a new alarm ringing, update the clock overlay (and photo if needed)
-                if (!ringing) {
+                // if there isn't a new alarm ringing, update the clock overlay (and
+                // photo if needed) — but skip all drawing while the panel is asleep.
+                if (!ringing && !displayAsleep) {
+                    // Anti burn-in: every so often nudge the whole UI a few px. Each
+                    // nudge repaints the photo at the new offset (one brief redraw)
+                    // and forces a full overlay repaint on top of it.
+                    if (ms - lastShift >= PIXEL_SHIFT_INTERVAL_MS) {
+                        lastShift = ms;
+                        shiftIdx = (shiftIdx + 1) % (sizeof(SHIFT_PATTERN) / sizeof(SHIFT_PATTERN[0]));
+                        DisplayUI::setPixelShift(SHIFT_PATTERN[shiftIdx][0], SHIFT_PATTERN[shiftIdx][1]);
+                        if (photoJpeg) DisplayUI::drawPhoto(photoJpeg, photoJpegLen);
+                        lastClockMinute = -1;   // force a full overlay repaint at the new offset
+                    }
+
                     int idx = pickPhotoIndex(now);
                     if (idx < 0) {
                         // No program associated → drop any cached photo so the

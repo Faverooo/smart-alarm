@@ -74,5 +74,11 @@
 #define ROTATION_MIN_INTERVAL 1      // floor for program interval_minutes
 #define WIFI_PORTAL_NAME "SmartAlarm-Setup"
 
+// Anti burn-in: nudge the whole UI (photo + overlay) by a few px on this cadence
+// so no static pixel is driven identically for long. Each nudge triggers one
+// brief photo repaint; keep the interval long enough that it's unobtrusive.
+#define PIXEL_SHIFT_INTERVAL_MS (30UL * 60000UL)   // every 30 min
+#define PIXEL_SHIFT_AMPLITUDE   3                  // px; stays inside the margins
+
 // Firmware version reported to the OTA endpoint and telemetry.
 #define FIRMWARE_VERSION "0.1.0"
