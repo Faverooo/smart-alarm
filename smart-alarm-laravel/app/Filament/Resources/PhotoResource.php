@@ -70,7 +70,7 @@ class PhotoResource extends Resource
                             ->disk(\App\Models\Photo::DISK)
                             ->visibility('private')
                             ->directory('photos')
-                            ->maxSize(10240)
+                            ->maxSize(15360)
                             ->helperText('Shown on a 4:3 (320×240) screen. If your photo isn’t 4:3, click the pencil to choose the part to keep.')
                             ->required(),
                         Forms\Components\TextInput::make('caption')

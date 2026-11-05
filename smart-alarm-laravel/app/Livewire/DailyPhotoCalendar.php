@@ -210,7 +210,7 @@ class DailyPhotoCalendar extends Component implements HasActions, HasForms
                     ->disk(Photo::DISK)
                     ->visibility('private')
                     ->directory('photos')
-                    ->maxSize(10240)
+                    ->maxSize(15360)
                     ->helperText('Shown on a 4:3 (320x240) screen — use the pencil to crop.')
                     ->visible(fn (Get $get) => $get('source') === 'upload')
                     ->requiredIf('source', 'upload'),

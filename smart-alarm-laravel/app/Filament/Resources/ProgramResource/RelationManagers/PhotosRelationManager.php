@@ -88,7 +88,7 @@ class PhotosRelationManager extends RelationManager
                             ->disk(Photo::DISK)
                             ->visibility('private')
                             ->directory('photos')
-                            ->maxSize(10240)
+                            ->maxSize(15360)
                             ->helperText('Shown on a 4:3 (320×240) screen — use the pencil to crop. '
                                 . ($isFixed ? '' : 'Up to ' . $this->remainingSlots() . ' more photo(s).'))
                             ->required(),
